@@ -12,6 +12,10 @@ import { Pedestrians } from './pedestrians.js';
 import { Police } from './police.js';
 import { Combat } from './combat.js';
 import { Effects } from './effects.js';
+import { Missions } from './missions.js';
+import { HUD } from './hud.js';
+import { Save } from './save.js';
+import { Audio } from './audio.js';
 
 const canvas = document.getElementById('view');
 
@@ -76,6 +80,159 @@ const carObstacles = parkedCars.map((car) => ({ x: car.x, z: car.z }));
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
 
+// ------------------------------------------------------------------ time of day
+const TOD_SUN_POS = {
+  day: { x: -90, y: 120, z: 60 },
+  dusk: { x: -170, y: 42, z: 120 },
+  night: { x: 60, y: 90, z: -140 },
+};
+
+let timeOfDay = DEFAULTS.timeOfDay || 'day';
+
+function setTimeOfDay(mode) {
+  const key = SKY[mode] ? mode : 'day';
+  const preset = SKY[key];
+  timeOfDay = key;
+  scene.background = new THREE.Color(preset.top);
+  if (scene.fog) {
+    scene.fog.color.setHex(preset.fog);
+    scene.fog.near = preset.fogNear;
+    scene.fog.far = preset.fogFar;
+  } else {
+    scene.fog = new THREE.Fog(preset.fog, preset.fogNear, preset.fogFar);
+  }
+  hemi.color.setHex(preset.hemiSky);
+  hemi.groundColor.setHex(preset.hemiGround);
+  hemi.intensity = preset.hemiIntensity;
+  sun.color.setHex(preset.sun);
+  sun.intensity = preset.sunIntensity;
+  const pos = TOD_SUN_POS[key] || TOD_SUN_POS.day;
+  sun.position.set(pos.x, pos.y, pos.z);
+  ambient.intensity = key === 'night' ? 0.16 : key === 'dusk' ? 0.26 : 0.35;
+  if (renderer) renderer.toneMappingExposure = key === 'night' ? 0.95 : 1.0;
+  return key;
+}
+
+const save = new Save();
+const audio = new Audio();
+
+const missions = new Missions({
+  player,
+  police,
+  combat,
+  world,
+  effects,
+  get cash() {
+    return cash;
+  },
+  set cash(v) {
+    cash = v;
+  },
+  driving: () => driving,
+});
+
+let paused = false;
+let hud = null;
+
+missions.onTimeOfDay = (mode) => setTimeOfDay(mode);
+missions.onEvent = (kind, data) => {
+  if (!hud) return;
+  switch (kind) {
+    case 'mission-start': {
+      if (audio.ctx) audio.setMusic(timeOfDay);
+      hud.toast('MISSION \u2014 ' + data.title, 3.4);
+      break;
+    }
+    case 'mission-stage':
+      hud.toast('NEW OBJECTIVE', 2.2);
+      break;
+    case 'mission-complete':
+      hud.toast('MISSION COMPLETE  +$' + data.reward, 4.5);
+      audio.playJingle();
+      autosave();
+      break;
+    case 'mission-fail':
+      hud.toast('MISSION FAILED \u2014 ' + data.reason, 3.5);
+      break;
+    case 'locked':
+      hud.toast('FINISH THE OTHER DISTRICTS FIRST', 3.2);
+      break;
+    case 'finale-unlocked':
+      hud.toast('ALL SIX DISTRICTS TAKEN \u2014 THE FINALE IS OPEN', 5);
+      audio.playJingle();
+      break;
+    case 'collect':
+      hud.toast('CASH STASH ' + data.total + '/12  +$150', 3);
+      audio.playPickup();
+      break;
+    case 'district':
+      hud.toast(data.name.toUpperCase() + ' TAKEN OVER', 4);
+      break;
+    case 'taxi-start':
+      hud.toast('TAXI FARE OFFERED', 3);
+      break;
+    case 'taxi-pickup':
+      hud.toast('FARE PICKED UP \u2014 DRIVE TO THE DROP-OFF', 3.2);
+      break;
+    case 'taxi-complete':
+      hud.toast('FARE PAID  +$' + data.cash, 3.2);
+      audio.playPickup();
+      break;
+    case 'trial-start':
+      hud.toast('TIME TRIAL STARTED', 3);
+      break;
+    case 'trial-complete':
+      hud.toast('TIME TRIAL WON  +$' + data.cash, 3.4);
+      audio.playJingle();
+      break;
+    case 'trial-fail':
+      hud.toast('TIME TRIAL EXPIRED', 3);
+      break;
+    default:
+      break;
+  }
+};
+
+hud = new HUD({
+  onStart: () => {
+    input.setEnabled(true);
+    combat._clickQueued = false;
+    if (typeof combat._keyG === 'boolean') combat._keyG = false;
+    audio.init();
+    audio.setMusic(timeOfDay);
+  },
+  onPauseToggle: () => {
+    paused = !paused;
+    hud.setPaused(paused);
+  },
+});
+
+function autosave() {
+  const data = missions.serialize();
+  data.cash = cash;
+  data.settings = {
+    volume: audio.volume,
+    muted: audio.muted,
+    minimap: hud.mapVisible,
+  };
+  save.save(data);
+}
+
+function applySave(data) {
+  if (!data || typeof data !== 'object') return false;
+  missions.apply(data);
+  if (typeof data.cash === 'number' && isFinite(data.cash)) cash = data.cash;
+  if (data.settings) {
+    if (typeof data.settings.volume === 'number') audio.setVolume(data.settings.volume);
+    if (data.settings.minimap === false) hud.setMinimap(false);
+  }
+  setTimeOfDay(timeOfDay);
+  return true;
+}
+
+const loaded = save.load();
+if (loaded) applySave(loaded);
+
 window.MARISOL = {
   scene,
   renderer,
@@ -92,17 +249,40 @@ window.MARISOL = {
   police,
   combat,
   effects,
+  missions,
+  hud,
+  save,
+  audio,
+  setTimeOfDay,
+  get timeOfDay() {
+    return timeOfDay;
+  },
   get driving() {
     return driving;
+  },
+  get cash() {
+    return cash;
+  },
+  set cash(v) {
+    cash = typeof v === 'number' && isFinite(v) ? v : cash;
+  },
+  get paused() {
+    return paused;
   },
   shot: shot || DEFAULTS.shot,
   ready: false,
 };
 
+window.MARISOL.dom = {};
 for (const el of ['hud', 'minimap', 'objective', 'wanted', 'start']) {
   const node = document.getElementById(el);
-  if (node) window.MARISOL[el] = node;
+  if (node) window.MARISOL.dom[el] = node;
 }
+window.MARISOL.hudRoot = document.getElementById('hud');
+window.MARISOL.minimap = document.getElementById('minimap');
+window.MARISOL.objective = document.getElementById('objective');
+window.MARISOL.wanted = document.getElementById('wanted');
+window.MARISOL.start = document.getElementById('start');
 
 const hint = document.createElement('div');
 hint.style.position = 'absolute';
@@ -119,7 +299,7 @@ hint.style.color = '#ffe9c9';
 hint.style.textShadow = '0 1px 1px rgba(0, 0, 0, 0.6)';
 hint.style.whiteSpace = 'nowrap';
 hint.style.display = 'none';
-const hudRoot = window.MARISOL.hud || null;
+const hudRoot = (hud && hud.root) || null;
 if (hudRoot) hudRoot.appendChild(hint);
 
 let hintText = null;
@@ -309,17 +489,49 @@ function updateHud() {
   } else {
     setHint(nearestParkedCar() ? 'E - Enter car' : '');
   }
-  updateWantedHud();
 }
 
-function updateWantedHud() {
-  const node = window.MARISOL.wanted;
-  if (!node) return;
-  const stars = police.getWanted();
-  const text = stars > 0 ? '\u2605'.repeat(stars) + '\u2606'.repeat(5 - stars) : '';
-  if (node.textContent !== text) node.textContent = text;
-  node.style.color = stars >= 4 ? '#ff6b5a' : '#ffd166';
-  node.style.opacity = stars > 0 ? '0.95' : '0.35';
+function districtNameAt(x, z) {
+  const d = world.districtAt ? world.districtAt(x, z) : '';
+  return d || '';
+}
+
+function buildHudSnapshot() {
+  const pos = driving ? driving.group.position : player.position;
+  const heading = driving ? driving.heading : player.state.facing;
+  const speed = driving ? driving.speed : player.state.speed;
+
+  const policePositions = [];
+  for (let i = 0; i < police.cruisers.length; i++) {
+    policePositions.push({ x: police.cruisers[i].vehicle.x, z: police.cruisers[i].vehicle.z });
+  }
+  for (let i = 0; i < police.cops.length; i++) {
+    policePositions.push({ x: police.cops[i].x, z: police.cops[i].z });
+  }
+
+  const trafficPositions = [];
+  for (let i = 0; i < traffic.cars.length; i++) {
+    trafficPositions.push({ x: traffic.cars[i].x, z: traffic.cars[i].z });
+  }
+
+  return {
+    wanted: police.getWanted(),
+    cash,
+    health: combat.state.health,
+    ammo: combat.state.ammo,
+    speed,
+    driving: !!driving,
+    objective: missions.getCurrentObjective(),
+    turf: missions.getTurf(),
+    districtsTaken: missions.turfCount(),
+    playerPos: { x: pos.x, z: pos.z },
+    heading,
+    missionMarker: missions.getMarker(),
+    policePositions,
+    trafficPositions,
+    district: districtNameAt(pos.x, pos.z),
+    missions: missions.getMissions(),
+  };
 }
 
 function respawnPlayer(options = {}) {
@@ -359,14 +571,25 @@ combat.onDeath = ({ cash: loss = 0 } = {}) => {
 
 combat.onShoot = () => {
   police.addHeat(1, 'shooting');
+  audio.playShot();
+  missions.notify('shot');
+};
+
+combat.onPunch = (hit) => {
+  if (hit) {
+    audio.playPunch();
+    missions.notify('punch');
+  }
 };
 
 combat.onHitCop = () => {
   police.addHeat(1, 'assaulting-officer');
+  missions.notify('hitCop');
 };
 
 combat.onHitPed = () => {
   police.addHeat(1, 'assault');
+  missions.notify('hitPed');
 };
 
 let effectsTimer = 0;
@@ -401,6 +624,7 @@ function updateEffects(dt, movement) {
     const sliding = movement.jump || Math.abs(driving.steerVisual) > 0.75;
     if (sliding && Math.abs(driving.speed) > 7 && skidTimer > 0.07) {
       skidTimer = 0;
+      audio.playSkid();
       const side = (driving.width || 1.92) / 2;
       const rx = Math.cos(driving.heading);
       const rz = -Math.sin(driving.heading);
@@ -479,15 +703,34 @@ let accumulator = 0;
 let last = performance.now() / 1000;
 let frames = 0;
 let elapsed = 0;
+let autosaveTimer = 0;
+
+function startNextMission() {
+  if (missions.isMissionActive) return;
+  const next = missions.nextMission();
+  if (!next) {
+    hud.toast('ALL STORY JOBS COMPLETE', 3);
+    return;
+  }
+  if (missions.startMission(next.id)) {
+    hud.toast('BRIEFING \u2014 ' + next.title, 3.2);
+  }
+}
 
 function step(dt) {
+  const active = hud.started && !paused;
+
   const mouse = input.consumeMouse();
-  if (mouse.dx !== 0 || mouse.dy !== 0) cam.applyOrbit(mouse.dx, mouse.dy);
-  if (mouse.wheel !== 0) cam.applyZoom(mouse.wheel);
+  if (active) {
+    if (mouse.dx !== 0 || mouse.dy !== 0) cam.applyOrbit(mouse.dx, mouse.dy);
+    if (mouse.wheel !== 0) cam.applyZoom(mouse.wheel);
+  }
 
-  const movement = input.readMovement();
+  const movement = active
+    ? input.readMovement()
+    : { forward: false, back: false, left: false, right: false, run: false, jump: false };
 
-  if (input.consumePress('interact')) {
+  if (active && input.consumePress('interact')) {
     if (driving) exitCar();
     else {
       const car = nearestParkedCar();
@@ -495,25 +738,32 @@ function step(dt) {
     }
   }
 
-  if (driving) {
-    driving.update(dt, driveInput(movement));
-    syncCarObstacles();
-  } else {
-    player.update(dt, movement, cam.yaw, playerColliders);
+  if (active) {
+    if (driving) {
+      driving.update(dt, driveInput(movement));
+      syncCarObstacles();
+    } else {
+      player.update(dt, movement, cam.yaw, playerColliders);
+    }
   }
 
   traffic.update(dt, driving ? driving.group.position : player.position, carObstacles);
   pedestrians.update(dt);
 
   const snapshot = playerSnapshot();
-  combat.update(dt, input, snapshot, police);
+  if (active) combat.update(dt, input, snapshot, police);
   police.update(dt);
-  updateCrime(dt);
+  if (active) {
+    updateCrime(dt);
+    missions.update(dt);
+  }
   updateEffects(dt, movement);
 
   updateCameraTarget(dt);
   updateHud();
   world.update(dt);
+
+  hud.update(dt, buildHudSnapshot());
 }
 
 function frame() {
@@ -532,6 +782,20 @@ function frame() {
   }
   if (steps === MAX_STEPS) accumulator = 0;
 
+  if (hud.started && !paused) {
+    const speed = driving ? Math.abs(driving.speed) : 0;
+    const maxSpeed = 28;
+    audio.setEngine(driving ? Math.min(1, speed / maxSpeed) : 0);
+    audio.playSiren(police.getWanted() > 0 && !audio.muted);
+    autosaveTimer += delta;
+    if (autosaveTimer >= 30) {
+      autosaveTimer = 0;
+      autosave();
+    }
+  } else {
+    audio.setEngine(0);
+  }
+
   renderer.render(scene, camera);
   frames++;
   window.MARISOL.frames = frames;
@@ -539,5 +803,26 @@ function frame() {
   window.MARISOL.ready = true;
   requestAnimationFrame(frame);
 }
+
+window.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  if (e.code === 'KeyM') {
+    audio.toggleMute();
+    hud.toast(audio.muted ? 'AUDIO MUTED' : 'AUDIO ON', 1.6);
+  } else if (e.code === 'KeyP' || e.code === 'Escape') {
+    if (!hud.started) return;
+    paused = !paused;
+    hud.setPaused(paused);
+    if (paused) autosave();
+  } else if (e.code === 'KeyJ') {
+    if (!hud.started) return;
+    startNextMission();
+  } else if (e.code === 'KeyH') {
+    hud.toggleMissions();
+  }
+});
+
+audio.arm();
+input.setEnabled(false);
 
 requestAnimationFrame(frame);
