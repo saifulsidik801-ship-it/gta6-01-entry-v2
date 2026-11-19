@@ -16,6 +16,7 @@ import { Missions } from './missions.js';
 import { HUD } from './hud.js';
 import { Save } from './save.js';
 import { Audio } from './audio.js';
+import { applyShot } from './shots.js';
 
 const canvas = document.getElementById('view');
 
@@ -254,6 +255,7 @@ window.MARISOL = {
   save,
   audio,
   setTimeOfDay,
+  lights: { hemi, sun, ambient },
   get timeOfDay() {
     return timeOfDay;
   },
@@ -270,6 +272,7 @@ window.MARISOL = {
     return paused;
   },
   shot: shot || DEFAULTS.shot,
+  shotStage: null,
   ready: false,
 };
 
@@ -443,6 +446,67 @@ rebuildPlayerColliders();
 cam.yaw = -Math.PI * 0.5;
 cam.snap(player.position, sampleGround);
 
+let shotStage = null;
+
+function buildShotContext() {
+  return {
+    scene,
+    renderer,
+    camera,
+    cam,
+    player,
+    world,
+    input,
+    parkedCars,
+    traffic,
+    pedestrians,
+    police,
+    combat,
+    effects,
+    missions,
+    hud,
+    config: { WORLD, SPAWN, SKY, CAMERA, PLAYER },
+    setTimeOfDay,
+    enterCar,
+    sampleGround,
+    lights: { hemi, sun, ambient },
+    get driving() {
+      return driving;
+    },
+    get cash() {
+      return cash;
+    },
+    set cash(v) {
+      cash = typeof v === 'number' && isFinite(v) ? v : cash;
+    },
+  };
+}
+
+function stageShot() {
+  if (!shot) return false;
+  const ctx = buildShotContext();
+  shotStage = applyShot(shot, ctx);
+  if (!shotStage) return false;
+  window.MARISOL.shotStage = shotStage;
+
+  hud.started = true;
+  hud.playing = true;
+  hud.paused = false;
+  if (hud.startOverlay) {
+    hud.startOverlay.classList.add('hidden');
+    hud.startOverlay.style.display = 'none';
+  }
+  input.setEnabled(true);
+  combat._clickQueued = false;  if (typeof combat._keyG === 'boolean') combat._keyG = false;
+
+  rebuildPlayerColliders();
+  cam.snap(driving ? driving.group.position : player.position, sampleGround);
+  updateCameraTarget(0.016);
+  updateHud();
+  hud.update(0.016, buildHudSnapshot());
+  return true;
+}
+
 function resize() {
   const w = window.innerWidth;
   const h = window.innerHeight;
@@ -461,6 +525,16 @@ function driveInput(movement) {
   return { throttle, steer, handbrake };
 }
 
+function shotDriveInput() {
+  const target = (shotStage && shotStage.targetSpeed) || 0;
+  const speed = driving ? driving.speed : 0;
+  let throttle;
+  if (speed < target - 0.8) throttle = Math.min(1, (target - speed) * 0.22 + 0.3);
+  else if (speed > target + 1.2) throttle = Math.max(-1, -(speed - target) * 0.25);
+  else throttle = 0.12;
+  return { throttle, steer: 0, handbrake: false };
+}
+
 function syncCarObstacles() {
   for (let i = 0; i < carObstacles.length; i++) {
     carObstacles[i].x = parkedCars[i].x;
@@ -470,7 +544,7 @@ function syncCarObstacles() {
 
 function updateCameraTarget(dt) {
   if (driving) {
-    if (!input.dragging) {
+    if (!input.dragging && !(shotStage && shotStage.lockCamera)) {
       let diff = driving.heading + Math.PI - cam.yaw;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
@@ -721,16 +795,16 @@ function step(dt) {
   const active = hud.started && !paused;
 
   const mouse = input.consumeMouse();
-  if (active) {
+  if (active && !shotStage) {
     if (mouse.dx !== 0 || mouse.dy !== 0) cam.applyOrbit(mouse.dx, mouse.dy);
     if (mouse.wheel !== 0) cam.applyZoom(mouse.wheel);
   }
 
   const movement = active
-    ? input.readMovement()
+    ? (shotStage ? shotStage.movement : input.readMovement())
     : { forward: false, back: false, left: false, right: false, run: false, jump: false };
 
-  if (active && input.consumePress('interact')) {
+  if (active && !shotStage && input.consumePress('interact')) {
     if (driving) exitCar();
     else {
       const car = nearestParkedCar();
@@ -740,7 +814,7 @@ function step(dt) {
 
   if (active) {
     if (driving) {
-      driving.update(dt, driveInput(movement));
+      driving.update(dt, shotStage ? shotDriveInput() : driveInput(movement));
       syncCarObstacles();
     } else {
       player.update(dt, movement, cam.yaw, playerColliders);
@@ -757,6 +831,7 @@ function step(dt) {
     updateCrime(dt);
     missions.update(dt);
   }
+  if (shotStage && shotStage.tick) shotStage.tick(dt);
   updateEffects(dt, movement);
 
   updateCameraTarget(dt);
@@ -790,7 +865,7 @@ function frame() {
     autosaveTimer += delta;
     if (autosaveTimer >= 30) {
       autosaveTimer = 0;
-      autosave();
+      if (!shot) autosave();
     }
   } else {
     audio.setEngine(0);
@@ -824,5 +899,13 @@ window.addEventListener('keydown', (e) => {
 
 audio.arm();
 input.setEnabled(false);
+
+if (shot) {
+  try {
+    if (!stageShot()) console.warn('shot: unknown scene "' + shot + '"');
+  } catch (err) {
+    console.error('shot: staging failed', err);
+  }
+}
 
 requestAnimationFrame(frame);
