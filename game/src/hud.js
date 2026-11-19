@@ -38,6 +38,17 @@ const VEHICLE_NAMES = {
   sport: 'Kite Coupe',
 };
 
+// R8: named police units for the response panel (top-1 style). Index follows
+// the snapshot policePositions order: cruisers first, then foot cops.
+const POLICE_NAMES = [
+  'KITE-1', 'MARLIN-3', 'CORAL-48', 'CORAL-85', 'CORAL-43',
+  'VIPER-2', 'HERON-2', 'BASTION-3', 'GULL-8', 'OSPREY-1', 'TARPON-38',
+];
+const POLICE_ROLES = [
+  'RAMMING', 'PURSUIT', 'FLANKING', 'CLOSING IN', 'RESPONDING',
+  'SPOTLIGHT', 'ROADBLOCK', 'PURSUIT',
+];
+
 const DISTRICTS = Array.isArray(CONFIG_DISTRICTS) && CONFIG_DISTRICTS.length
   ? CONFIG_DISTRICTS
   : [
@@ -174,6 +185,45 @@ const CSS = `
 .mb-job span{color:#a8b6bf;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;}
 .mb-job.done{opacity:.5;}
 .mb-job.done b{text-decoration:line-through;}
+/* R8: top-1 style panels — police response, crew abilities, dialog. */
+.mb-police{position:absolute;left:28px;top:126px;width:232px;padding:8px 10px 7px;border-radius:6px;
+  background:rgba(9,16,24,.66);border:1px solid rgba(255,246,229,.16);display:none;z-index:5;}
+.mb-police.on{display:block;}
+.mb-police-head{display:flex;justify-content:space-between;align-items:baseline;
+  font:700 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.16em;color:#ff8b6a;text-transform:uppercase;}
+.mb-police-head b{color:#fff2dd;font-size:10.5px;}
+.mb-police-row{display:flex;justify-content:space-between;gap:8px;margin-top:5px;
+  font:600 10.5px/1.3 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.08em;color:#f2e6d3;}
+.mb-police-row .u{color:#ffd166;font-weight:700;}
+.mb-police-row .r{color:#8fb7c9;}
+.mb-police-row .d{color:#fff2dd;font-weight:700;}
+.mb-police-foot{margin-top:6px;font:600 9px/1.2 "Trebuchet MS","Segoe UI",sans-serif;
+  letter-spacing:.14em;color:#7fd8d0;text-transform:uppercase;}
+.mb-crew{position:absolute;right:18px;top:180px;width:208px;display:none;flex-direction:column;gap:6px;z-index:5;}
+.mb-crew.on{display:flex;}
+.mb-crew-head{font:700 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.22em;color:#7fd8d0;text-transform:uppercase;}
+.mb-crew-card{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:6px;
+  background:rgba(9,16,24,.66);border:1px solid rgba(255,246,229,.16);}
+.mb-crew-key{flex:0 0 auto;width:22px;height:22px;border-radius:4px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(180deg,#ffb347,#e88a2c);color:#20160c;font:700 11px/1 "Trebuchet MS","Segoe UI",sans-serif;}
+.mb-crew-name{font:700 10.5px/1.25 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#fff2dd;text-transform:uppercase;}
+.mb-crew-who{font:600 9px/1.3 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#a8b6bf;text-transform:uppercase;}
+.mb-dialog{position:absolute;left:50%;bottom:96px;transform:translateX(-50%);width:320px;display:none;
+  padding:9px 12px;border-radius:6px;background:rgba(9,16,24,.72);border:1px solid rgba(255,246,229,.18);z-index:5;}
+.mb-dialog.on{display:flex;gap:10px;align-items:flex-start;}
+.mb-dialog-face{flex:0 0 auto;width:34px;height:34px;border-radius:5px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(160deg,#2fb6c9,#1c6f8c);color:#fff;font:700 15px/1 "Trebuchet MS","Segoe UI",sans-serif;}
+.mb-dialog-name{font:700 10.5px/1.3 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.12em;color:#7fd8d0;text-transform:uppercase;}
+.mb-dialog-text{margin-top:2px;font:600 11.5px/1.45 "Trebuchet MS","Segoe UI",sans-serif;color:#f2e6d3;}
+/* R8 shot mode: the brand title, controls strip, turf ticker, centre hint pill,
+   toasts and centre event cards are hidden — at 800x480 they all collide with
+   the speed readout, the minimap or each other. The in-game HUD stays intact. */
+.mb-shot #title{display:none !important;}
+.mb-shot .mb-controls{display:none !important;}
+.mb-shot #turf-income{display:none !important;}
+.mb-shot #hud > div[style*="92px"]{display:none !important;}
+.mb-shot .mb-toasts{display:none !important;}
+.mb-shot #hud > .mb-panel{display:none !important;}
 `;
 
 // --------------------------------------------------------------------- helpers
@@ -569,6 +619,52 @@ export class HUD {
     speed.appendChild(this.el.vehicle);
     this.el.speed = speed;
     this.root.appendChild(speed);
+
+    // R8 panels: police response (named units + live distance), crew ability
+    // cards, and the dialog box. Built once, shown by updateShotPanels().
+    const policePanel = make('div', 'mb-police');
+    this.el.policeHead = make('div', 'mb-police-head');
+    this.el.policeHead.appendChild(make('span', null, 'Police response'));
+    this.el.policeHeadCount = make('b', null, '0 units');
+    this.el.policeHead.appendChild(this.el.policeHeadCount);
+    this.el.policeRows = make('div');
+    this.el.policeFoot = make('div', 'mb-police-foot', 'Responding');
+    policePanel.appendChild(this.el.policeHead);
+    policePanel.appendChild(this.el.policeRows);
+    policePanel.appendChild(this.el.policeFoot);
+    this.el.police = policePanel;
+    this.root.appendChild(policePanel);
+
+    const crew = make('div', 'mb-crew');
+    crew.appendChild(make('div', 'mb-crew-head', 'Crew · Abilities'));
+    const crewDefs = [
+      ['Z', 'Swap plates', 'Mira · Driver'],
+      ['X', 'Quick fix', 'Lio · Mechanic'],
+      ['C', 'Eyes out', 'Kiki · Lookout'],
+    ];
+    for (let i = 0; i < crewDefs.length; i++) {
+      const card = make('div', 'mb-crew-card');
+      card.appendChild(make('div', 'mb-crew-key', crewDefs[i][0]));
+      const mid = make('div');
+      mid.appendChild(make('div', 'mb-crew-name', crewDefs[i][1]));
+      mid.appendChild(make('div', 'mb-crew-who', crewDefs[i][2]));
+      card.appendChild(mid);
+      crew.appendChild(card);
+    }
+    this.el.crew = crew;
+    this.root.appendChild(crew);
+
+    const dialog = make('div', 'mb-dialog');
+    this.el.dialogFace = make('div', 'mb-dialog-face', 'M');
+    const dialogMid = make('div');
+    this.el.dialogName = make('div', 'mb-dialog-name', '');
+    this.el.dialogText = make('div', 'mb-dialog-text', '');
+    dialogMid.appendChild(this.el.dialogName);
+    dialogMid.appendChild(this.el.dialogText);
+    dialog.appendChild(this.el.dialogFace);
+    dialog.appendChild(dialogMid);
+    this.el.dialog = dialog;
+    this.root.appendChild(dialog);
 
     this.root.appendChild(make(
       'div',
@@ -976,6 +1072,70 @@ export class HUD {
       frag.appendChild(row);
     }
     this.el.jobList.replaceChildren(frag);
+  }
+
+  // R8: dialog line for screenshot scenes. Crew cards and the dialog show in
+  // shot mode; the police panel shows whenever units are on the map.
+  setShotDialog(speaker, role, text) {
+    this.shotDialog = {
+      speaker: String(speaker || ''),
+      role: String(role || ''),
+      text: String(text || ''),
+    };
+    if (this.el.dialogFace) {
+      this.el.dialogFace.textContent = (this.shotDialog.speaker || 'M').charAt(0);
+    }
+    if (this.el.dialogName) {
+      this.el.dialogName.textContent = this.shotDialog.speaker
+        + (this.shotDialog.role ? '  ·  ' + this.shotDialog.role : '');
+    }
+    if (this.el.dialogText) this.el.dialogText.textContent = this.shotDialog.text;
+  }
+
+  updateShotPanels(snap) {
+    const shot = typeof document !== 'undefined'
+      && document.body && document.body.classList.contains('mb-shot');
+    const px = snap && snap.playerPos ? snap.playerPos.x : 0;
+    const pz = snap && snap.playerPos ? snap.playerPos.z : 0;
+    const units = [];
+    if (snap && Array.isArray(snap.policePositions)) {
+      for (let i = 0; i < snap.policePositions.length; i++) {
+        const p = snap.policePositions[i];
+        if (!p || typeof p.x !== 'number' || typeof p.z !== 'number') continue;
+        units.push({ d: Math.round(Math.hypot(p.x - px, p.z - pz)), i });
+      }
+    }
+    units.sort((a, b) => a.d - b.d);
+    const shown = units.slice(0, 6);
+    if (this.el.police) {
+      const show = shown.length > 0;
+      this.el.police.classList.toggle('on', show);
+      if (show) {
+        const key = shown.map((u) => u.i + ':' + u.d).join('|');
+        if (key !== this.cache.policeKey) {
+          this.cache.policeKey = key;
+          this.setText('policeCount', this.el.policeHeadCount,
+            shown.length + (shown.length === 1 ? ' unit' : ' units'));
+          const frag = document.createDocumentFragment();
+          for (let k = 0; k < shown.length; k++) {
+            const row = make('div', 'mb-police-row');
+            row.appendChild(make('span', 'u', POLICE_NAMES[shown[k].i % POLICE_NAMES.length]));
+            row.appendChild(make('span', 'r', POLICE_ROLES[shown[k].i % POLICE_ROLES.length]));
+            row.appendChild(make('span', 'd', shown[k].d + ' m'));
+            frag.appendChild(row);
+          }
+          this.el.policeRows.replaceChildren(frag);
+          this.setText('policeFoot', this.el.policeFoot,
+            shown[0].d <= 25
+              ? 'In sight · closest ' + shown[0].d + ' m'
+              : 'Responding · closest ' + shown[0].d + ' m');
+        }
+      }
+    }
+    if (this.el.crew) this.el.crew.classList.toggle('on', shot);
+    if (this.el.dialog) {
+      this.el.dialog.classList.toggle('on', !!(shot && this.shotDialog && this.shotDialog.text));
+    }
   }
 
   // ---------------------------------------------------------------- toasts
@@ -1635,6 +1795,7 @@ export class HUD {
     }
 
     this.updateVignette(step, numOf(snap.health));
+    this.updateShotPanels(snap);
   }
 
   updateVignette(dt, health) {
