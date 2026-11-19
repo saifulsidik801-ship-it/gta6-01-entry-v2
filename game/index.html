@@ -9,18 +9,48 @@
   :root { color-scheme: dark; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #0d1117; }
-  #view { display: block; width: 100vw; height: 100vh; }
+  #view { display: block; width: 100vw; height: 100vh; touch-action: none; }
   #title {
     position: fixed; left: 28px; bottom: 26px;
     font: 700 34px/1.1 "Trebuchet MS", "Segoe UI", sans-serif;
     letter-spacing: 0.22em; color: #fff6e5;
     text-shadow: 0 2px 18px rgba(255, 128, 52, 0.55), 0 1px 2px rgba(0, 0, 0, 0.6);
-    pointer-events: none; user-select: none;
+    pointer-events: none; user-select: none; z-index: 6;
   }
   #title small {
     display: block; margin-top: 8px;
     font: 400 12px/1.4 "Trebuchet MS", "Segoe UI", sans-serif;
     letter-spacing: 0.14em; color: #ffcf9b; opacity: 0.9;
+  }
+  #hud {
+    position: fixed; inset: 0; pointer-events: none; z-index: 4;
+    font: 500 13px/1.35 "Trebuchet MS", "Segoe UI", sans-serif;
+    color: #f6efe2;
+  }
+  #minimap {
+    position: fixed; right: 18px; bottom: 18px;
+    width: 132px; height: 132px; border-radius: 8px;
+    background: rgba(10, 18, 26, 0.35);
+    border: 1px solid rgba(255, 246, 229, 0.22);
+    pointer-events: none; z-index: 5;
+  }
+  #objective {
+    position: fixed; left: 28px; top: 24px; max-width: 360px;
+    font: 600 12px/1.5 "Trebuchet MS", "Segoe UI", sans-serif;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: #ffe9c9; opacity: 0.85; pointer-events: none; z-index: 5;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.65);
+  }
+  #wanted {
+    position: fixed; right: 20px; top: 22px;
+    font: 700 15px/1 "Trebuchet MS", "Segoe UI", sans-serif;
+    letter-spacing: 0.3em; color: #ffd166; opacity: 0.7;
+    pointer-events: none; z-index: 5;
+  }
+  #start {
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(8, 14, 20, 0.62); z-index: 7;
   }
 </style>
 <script type="importmap">
@@ -33,6 +63,11 @@
 </head>
 <body>
 <canvas id="view"></canvas>
+<div id="hud"></div>
+<canvas id="minimap" width="132" height="132"></canvas>
+<div id="objective"></div>
+<div id="wanted"></div>
+<div id="start"></div>
 <div id="title">MARISOL BAY<small>A SUN-SOAKED COASTAL CITY</small></div>
 <script type="module" src="./src/main.js"></script>
 </body>

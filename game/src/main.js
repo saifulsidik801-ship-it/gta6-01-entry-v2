@@ -1,66 +1,134 @@
+// MARISOL BAY - boot, renderer, sky, fixed-timestep loop.
+
 import * as THREE from 'three';
+import { WORLD, SPAWN, SKY, CAMERA, PLAYER, DEFAULTS } from './config.js';
+import { buildWorld } from './world.js';
+import { buildPlayer } from './player.js';
+import { buildCamera } from './camera.js';
+import { buildInput } from './input.js';
 
 const canvas = document.getElementById('view');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: 'high-performance',
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = false;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87c6e8);
-scene.fog = new THREE.Fog(0x87c6e8, 90, 240);
+const sky = SKY.day;
+scene.background = new THREE.Color(sky.top);
+scene.fog = new THREE.Fog(sky.fog, sky.fogNear, sky.fogFar);
 
-const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 600);
-camera.position.set(16, 11, 26);
-camera.lookAt(0, 2, 0);
+const camera = new THREE.PerspectiveCamera(CAMERA.fov, 1, CAMERA.near, CAMERA.far);
 
-scene.add(new THREE.HemisphereLight(0xbfe4ff, 0x8a7452, 0.85));
+const hemi = new THREE.HemisphereLight(sky.hemiSky, sky.hemiGround, sky.hemiIntensity);
+scene.add(hemi);
 
-const sun = new THREE.DirectionalLight(0xffe6b8, 1.9);
-sun.position.set(38, 52, 18);
+const sun = new THREE.DirectionalLight(sky.sun, sky.sunIntensity);
+sun.position.set(-90, 120, 60);
+sun.target.position.set(0, 0, 0);
 scene.add(sun);
+scene.add(sun.target);
 
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(400, 400),
-  new THREE.MeshLambertMaterial({ color: 0x6f7d5a }),
-);
-ground.rotation.x = -Math.PI / 2;
-scene.add(ground);
+const ambient = new THREE.AmbientLight(0xbcd6e8, 0.35);
+scene.add(ambient);
 
-const blocks = [
-  { x: -14, z: -8, w: 8, h: 12, d: 8, c: 0xd9c9ae },
-  { x: 0, z: -16, w: 10, h: 20, d: 9, c: 0xc7b49a },
-  { x: 15, z: -6, w: 7, h: 9, d: 11, c: 0xe2d3ba },
-  { x: -6, z: 12, w: 9, h: 6, d: 7, c: 0xbfae95 },
-  { x: 10, z: 16, w: 6, h: 15, d: 6, c: 0xd2c2a8 },
-];
+const world = buildWorld(scene);
+const player = buildPlayer(scene, SPAWN);
+const input = buildInput(canvas);
+const cam = buildCamera(camera, canvas);
 
-for (const b of blocks) {
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(b.w, b.h, b.d),
-    new THREE.MeshLambertMaterial({ color: b.c }),
-  );
-  mesh.position.set(b.x, b.h / 2, b.z);
-  scene.add(mesh);
+const params = new URLSearchParams(window.location.search);
+const shot = params.get('shot');
+
+window.MARISOL = {
+  scene,
+  renderer,
+  camera,
+  player,
+  world,
+  config: { WORLD, SPAWN, SKY, CAMERA, PLAYER },
+  input,
+  cam,
+  shot: shot || DEFAULTS.shot,
+  ready: false,
+};
+
+for (const el of ['hud', 'minimap', 'objective', 'wanted', 'start']) {
+  const node = document.getElementById(el);
+  if (node) window.MARISOL[el] = node;
 }
+
+function sampleGround(x, z) {
+  let best = 0;
+  const colliders = world.colliders;
+  for (let i = 0; i < colliders.length; i++) {
+    const c = colliders[i];
+    if (c.kind === 'building') continue;
+    if (x > c.minX && x < c.maxX && z > c.minZ && z < c.maxZ && c.height > best) {
+      best = c.height;
+    }
+  }
+  return best;
+}
+
+cam.yaw = -Math.PI * 0.5;
+cam.snap(player.position, sampleGround);
 
 function resize() {
   const w = window.innerWidth;
   const h = window.innerHeight;
   renderer.setSize(w, h, false);
-  camera.aspect = w / h;
+  camera.aspect = h > 0 ? w / h : 1;
   camera.updateProjectionMatrix();
 }
 
 window.addEventListener('resize', resize);
 resize();
 
-let angle = 0;
+const FIXED_STEP = 1 / 60;
+const MAX_STEPS = 5;
+let accumulator = 0;
+let last = performance.now() / 1000;
+let frames = 0;
+let elapsed = 0;
+
+function step(dt) {
+  const mouse = input.consumeMouse();
+  if (mouse.dx !== 0 || mouse.dy !== 0) cam.applyOrbit(mouse.dx, mouse.dy);
+  if (mouse.wheel !== 0) cam.applyZoom(mouse.wheel);
+
+  const movement = input.readMovement();
+  player.update(dt, movement, cam.yaw, world.colliders);
+  cam.update(dt, player.position, sampleGround);
+  world.update(dt);
+}
 
 function frame() {
-  angle += 0.0015;
-  camera.position.x = Math.sin(angle) * 28;
-  camera.position.z = Math.cos(angle) * 28;
-  camera.lookAt(0, 4, 0);
+  const now = performance.now() / 1000;
+  let delta = now - last;
+  last = now;
+  if (delta > 0.25) delta = 0.25;
+  elapsed += delta;
+
+  accumulator += delta;
+  let steps = 0;
+  while (accumulator >= FIXED_STEP && steps < MAX_STEPS) {
+    step(FIXED_STEP);
+    accumulator -= FIXED_STEP;
+    steps++;
+  }
+  if (steps === MAX_STEPS) accumulator = 0;
+
   renderer.render(scene, camera);
+  frames++;
+  window.MARISOL.frames = frames;
+  window.MARISOL.elapsed = elapsed;
+  window.MARISOL.ready = true;
   requestAnimationFrame(frame);
 }
 
