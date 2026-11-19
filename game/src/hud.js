@@ -286,7 +286,7 @@ const CSS = `
 .mb-police-row .d{color:#fff2dd;font-weight:700;}
 .mb-police-foot{margin-top:6px;font:600 9px/1.2 "Trebuchet MS","Segoe UI",sans-serif;
   letter-spacing:.14em;color:#7fd8d0;text-transform:uppercase;}
-.mb-crew{position:absolute;right:18px;top:172px;width:208px;display:none;flex-direction:column;gap:5px;z-index:5;}
+.mb-crew{position:absolute;right:18px;top:164px;width:208px;display:none;flex-direction:column;gap:5px;z-index:5;}
 .mb-crew.on{display:flex;}
 .mb-crew-head{padding:5px 8px;border-radius:5px;background:rgba(9,16,24,.88);border:1px solid rgba(255,246,229,.16);
   font:700 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.22em;color:#7fd8d0;text-transform:uppercase;}
@@ -304,7 +304,7 @@ const CSS = `
 .mb-wslot.locked{opacity:.55;}
 .mb-wslot.locked .i{font-size:8px;color:#8fa0ab;letter-spacing:.05em;}
 /* R9: radio line — sits above the big speed number, bottom right. */
-.mb-radio{position:absolute;right:170px;bottom:88px;display:none;text-align:right;z-index:5;
+.mb-radio{position:absolute;right:170px;bottom:118px;display:none;text-align:right;z-index:5;
   font:600 10px/1.4 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#ffe9c9;
   text-shadow:0 1px 3px rgba(0,0,0,.8);white-space:nowrap;}
 .mb-radio.on{display:block;}
@@ -361,12 +361,12 @@ const CSS = `
 .mb-garage-on #objective,.mb-garage-on #minimap,.mb-garage-on #turf-income{display:none !important;}
 .mb-garage-on #title{display:none !important;}
 /* R9: action popup for driving shots (DRIFT / NEAR MISS). */
-.mb-shot-popup{position:absolute;right:220px;top:200px;display:none;padding:7px 12px;border-radius:6px;
+.mb-shot-popup{position:absolute;right:250px;top:200px;display:none;padding:7px 12px;border-radius:6px;
   background:rgba(9,16,24,.78);border:1px solid rgba(255,209,102,.5);z-index:5;
   font:700 13px/1.2 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.14em;color:#ffd166;}
 .mb-shot-popup.on{display:block;}
 /* R9 shot mode: bigger, brighter minimap. */
-.mb-shot #minimap{width:150px !important;height:150px !important;}
+.mb-shot #minimap{width:132px !important;height:132px !important;}
 /* R9 shot mode: the turf panel crowds the right column — hide it in shots. */
 .mb-shot .mb-turf{display:none !important;}
 canvas.mb-dialog-face{padding:0;background:none;border:1px solid rgba(255,246,229,.3);border-radius:5px;}
@@ -376,7 +376,7 @@ canvas.mb-dialog-face{padding:0;background:none;border:1px solid rgba(255,246,22
   background:linear-gradient(180deg,#ffb347,#e88a2c);color:#20160c;font:700 11px/1 "Trebuchet MS","Segoe UI",sans-serif;}
 .mb-crew-name{font:700 10.5px/1.25 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#fff2dd;text-transform:uppercase;}
 .mb-crew-who{font:600 9px/1.3 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#a8b6bf;text-transform:uppercase;}
-.mb-dialog{position:absolute;left:50%;bottom:130px;transform:translateX(-50%);width:320px;display:none;
+.mb-dialog{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);width:280px;display:none;
   padding:9px 12px;border-radius:6px;background:rgba(9,16,24,.72);border:1px solid rgba(255,246,229,.18);z-index:5;}
 .mb-dialog.on{display:flex;gap:10px;align-items:flex-start;}
 .mb-dialog-face{flex:0 0 auto;width:34px;height:34px;border-radius:5px;display:flex;align-items:center;justify-content:center;
