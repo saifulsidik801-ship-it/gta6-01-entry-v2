@@ -7,6 +7,8 @@ export function buildCamera(camera, domElement) {
   let yaw = Math.PI * 0.5;
   let pitch = CAMERA.pitch;
   let distance = CAMERA.distance;
+  let shoulder = 0;
+  let shoulderSmooth = 0;
 
   const wantedPos = new THREE.Vector3();
   const wantedTarget = new THREE.Vector3();
@@ -29,20 +31,38 @@ export function buildCamera(camera, domElement) {
     distance = Math.max(CAMERA.minDistance, Math.min(CAMERA.maxDistance, distance));
   }
 
+  // On-foot shoulder framing: shifts the rig sideways without moving the aim point
+  // fully, so Milo sits off-centre and the street ahead stays readable.
+  function setShoulder(amount) {
+    const v = Number.isFinite(amount) ? amount : 0;
+    shoulder = Math.max(-2, Math.min(2, v));
+  }
+
   function update(dt, target, sampleGround) {
     const groundY = sampleGround ? sampleGround(target.x, target.z) : 0;
 
     wantedTarget.set(target.x, target.y + CAMERA.targetHeight, target.z);
+
+    // Ease the shoulder offset so entering/leaving a car does not jerk the frame.
+    if (initialised) {
+      shoulderSmooth += (shoulder - shoulderSmooth) * (1 - Math.exp(-CAMERA.shoulderLerp * dt));
+    } else {
+      shoulderSmooth = shoulder;
+    }
 
     const cosPitch = Math.cos(pitch);
     const offsetX = Math.sin(yaw) * cosPitch * distance;
     const offsetZ = Math.cos(yaw) * cosPitch * distance;
     const offsetY = Math.sin(pitch) * distance + 1.15;
 
+    // Camera-right vector for the shoulder framing (perpendicular to the orbit yaw).
+    const rightX = Math.cos(yaw);
+    const rightZ = -Math.sin(yaw);
+
     wantedPos.set(
-      wantedTarget.x + offsetX,
+      wantedTarget.x + offsetX + rightX * shoulderSmooth,
       wantedTarget.y + offsetY,
-      wantedTarget.z + offsetZ,
+      wantedTarget.z + offsetZ + rightZ * shoulderSmooth,
     );
 
     const floor = groundY + CAMERA.groundClearance;
@@ -57,6 +77,11 @@ export function buildCamera(camera, domElement) {
       smoothTarget.lerp(wantedTarget, k);
       smoothPos.lerp(wantedPos, k);
       if (smoothPos.y < floor) smoothPos.y = floor;
+      // A respawn or vehicle teleport should not be smeared across the city.
+      if (smoothPos.distanceTo(wantedPos) > CAMERA.snapDistance) {
+        smoothPos.copy(wantedPos);
+        smoothTarget.copy(wantedTarget);
+      }
     }
 
     camera.position.copy(smoothPos);
@@ -71,6 +96,8 @@ export function buildCamera(camera, domElement) {
   function reset() {
     pitch = CAMERA.pitch;
     distance = CAMERA.distance;
+    shoulder = 0;
+    shoulderSmooth = 0;
   }
 
   return {
@@ -79,6 +106,7 @@ export function buildCamera(camera, domElement) {
     reset,
     applyOrbit,
     applyZoom,
+    setShoulder,
     get yaw() {
       return yaw;
     },

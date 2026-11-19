@@ -155,6 +155,30 @@ export const TURF = {
   heatPerTakeover: 1,
 };
 
+// Seconds of real play time between turf payouts, and what a district pays per tick.
+export const TURF_INCOME_TICK = 25;
+export const TURF_INCOME_PER_TICK = 60;
+
+// Story job payout: a flat base plus a per-district bonus so late jobs pay more.
+export const MISSION_REWARD_BASE = 850;
+export const MISSION_REWARD_PER_DISTRICT = 175;
+export const MISSION_REWARD_FINALE = 4000;
+
+// Wanted-level pacing: how long one star of pursuit stays hot before it cools,
+// and how much heat a single star adds when the police escalate.
+export const CHASE_HEAT_PER_STAR = 45;
+export const CHASE_COOLDOWN_PER_STAR = 18;
+export const WANTED_MAX_STARS = 5;
+
+// Procedural audio mix levels (no audio assets are shipped).
+export const AUDIO_MIX = {
+  master: 0.8,
+  music: 0.34,
+  engine: 0.5,
+  siren: 0.4,
+  effects: 0.65,
+};
+
 export const PLAYER = {
   walkSpeed: 6.0,
   runSpeed: 11.2,
@@ -182,6 +206,9 @@ export const CAMERA = {
   zoomStep: 1.25,
   lerp: 9,
   groundClearance: 0.7,
+  shoulderOffset: 0.85,
+  shoulderLerp: 6,
+  snapDistance: 26,
 };
 
 export const SKY = {

@@ -2,7 +2,7 @@
   {
     "name": "01-cover-police-chase-dusk.png",
     "query": "?shot=01-cover-police-chase-dusk",
-    "description": "Cover shot: Milo Kade fleeing a police cruiser through Marisol Bay downtown at dusk, wanted stars, minimap and mission objective on the HUD."
+    "description": "Cover shot: Milo Kade fleeing a police cruiser through Marisol Bay downtown at dusk, five wanted stars burning on the HUD beside the minimap and the mission objective, the heat of the chase closing in."
   },
   {
     "name": "02-on-foot-city-traffic.png",
@@ -17,6 +17,6 @@
   {
     "name": "04-mission-night-turf.png",
     "query": "?shot=04-mission-night-turf",
-    "description": "Night turf takeover in the port district: muzzle flashes, police response, the mission objective overlay and the turf takeover progress bar filling as the district falls."
+    "description": "Night turf takeover in the port district: muzzle flashes, police response, the mission objective overlay and the turf takeover progress bar filling — with the required-wanted-stars heat readout glowing — as the district falls."
   }
 ]

@@ -39,7 +39,7 @@ const CONTENT_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-createServer((req, res) => {
+function handle(req, res) {
   const parsed = new URL(req.url ?? '/', 'http://localhost');
   let rel: string;
   try {
@@ -72,6 +72,26 @@ createServer((req, res) => {
     'cache-control': 'no-store',
   });
   createReadStream(file).pipe(res);
-}).listen(port, '127.0.0.1', () => {
-  console.log(`serving game/ on http://localhost:${port}`);
-});
+}
+
+// If the chosen port is already taken, try the next few numbers instead of dying
+// with an EADDRINUSE stack trace. Attempt 0 is the requested port, so an ordinary
+// `node serve.ts` run behaves exactly as before.
+const MAX_PORT_FALLBACKS = 10;
+
+function listenOn(attempt: number) {
+  const server = createServer(handle);
+  server.on('error', (err: { code?: string }) => {
+    if (err && err.code === 'EADDRINUSE' && attempt < MAX_PORT_FALLBACKS) {
+      listenOn(attempt + 1);
+      return;
+    }
+    throw err;
+  });
+  const bound = port + attempt;
+  server.listen(bound, '127.0.0.1', () => {
+    console.log(`serving game/ on http://localhost:${bound}`);
+  });
+}
+
+listenOn(0);

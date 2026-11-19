@@ -15,6 +15,16 @@ const COLORS = {
   hair: 0x2a211c,
 };
 
+// Sprint stamina: Milo can only hold top speed for a stretch, then has to catch
+// his breath. Values are in stamina points and points-per-second.
+const STAMINA = {
+  max: 100,
+  drain: 24,
+  regen: 19,
+  idleRegen: 30,
+  sprintFloor: 6,
+};
+
 function box(w, h, d, color) {
   return new THREE.Mesh(
     new THREE.BoxGeometry(w, h, d),
@@ -146,6 +156,9 @@ export function buildPlayer(scene, spawn) {
     speed: 0,
     phase: 0,
     running: false,
+    stamina: STAMINA.max,
+    sprinting: false,
+    exhausted: false,
   };
 
   root.position.set(state.x, state.y, state.z);
@@ -216,7 +229,22 @@ export function buildPlayer(scene, spawn) {
       dirZ /= len;
     }
 
-    const targetSpeed = state.running ? PLAYER.runSpeed : PLAYER.walkSpeed;
+    const moving = forward !== 0 || strafe !== 0;
+    state.sprinting = state.running && moving && !state.exhausted;
+
+    if (state.sprinting) {
+      state.stamina = Math.max(0, state.stamina - STAMINA.drain * dt);
+      if (state.stamina <= 0) {
+        state.exhausted = true;
+        state.sprinting = false;
+      }
+    } else {
+      const regen = moving ? STAMINA.regen : STAMINA.idleRegen;
+      state.stamina = Math.min(STAMINA.max, state.stamina + regen * dt);
+      if (state.exhausted && state.stamina >= STAMINA.sprintFloor) state.exhausted = false;
+    }
+
+    const targetSpeed = state.sprinting ? PLAYER.runSpeed : PLAYER.walkSpeed;
     const desiredVX = dirX * targetSpeed;
     const desiredVZ = dirZ * targetSpeed;
     const rate = (dirX || dirZ) ? PLAYER.accel : PLAYER.decel;
@@ -276,11 +304,11 @@ export function buildPlayer(scene, spawn) {
 
   function animate(dt) {
     const moving = state.speed > 0.35;
-    const stride = state.running ? 15.5 : 9.5;
+    const stride = state.sprinting ? 15.5 : 9.5;
     if (moving) state.phase += dt * stride;
     else state.phase += dt * 2.4;
 
-    const amp = moving ? (state.running ? 1.0 : 0.62) * Math.min(1, state.speed / PLAYER.walkSpeed) : 0;
+    const amp = moving ? (state.sprinting ? 1.0 : 0.62) * Math.min(1, state.speed / PLAYER.walkSpeed) : 0;
     const sw = Math.sin(state.phase);
     const sw2 = Math.cos(state.phase);
 
@@ -339,6 +367,12 @@ export function buildPlayer(scene, spawn) {
     },
     get speedKmh() {
       return Math.hypot(state.vx, state.vz) * 3.6;
+    },
+    get staminaRatio() {
+      return state.stamina / STAMINA.max;
+    },
+    get sprinting() {
+      return state.sprinting;
     },
   };
 }

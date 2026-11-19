@@ -26,12 +26,17 @@ const outputShots = join(outputDir, 'screenshots');
 
 mkdirSync(outputDir, { recursive: true });
 
+// Fail before copying anything: a half-packed output tree is worse than a clear stop.
 if (!existsSync(sourceGame)) {
   throw new Error(`missing game/ folder next to main.ts: ${sourceGame}`);
 }
 
+if (!existsSync(sourceShots)) {
+  throw new Error(`missing screenshots/ folder next to main.ts: ${sourceShots}`);
+}
+
 cpSync(sourceGame, outputGame, { recursive: true });
-if (existsSync(sourceShots)) cpSync(sourceShots, outputShots, { recursive: true });
+cpSync(sourceShots, outputShots, { recursive: true });
 
 // Caps mirror the bounty gate so this program refuses an entry the scorer would refuse:
 // source text under 160 KiB, at most 4 screenshots of 256 KiB each, at most 993 files and

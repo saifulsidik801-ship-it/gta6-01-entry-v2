@@ -44,6 +44,22 @@
     color: #ffe9c9; opacity: 0.85; pointer-events: none; z-index: 5;
     text-shadow: 0 1px 6px rgba(0, 0, 0, 0.65);
   }
+  #turf-income {
+    position: fixed; right: 18px; bottom: 158px;
+    min-width: 132px; padding: 5px 9px; border-radius: 6px;
+    background: rgba(10, 18, 26, 0.42);
+    border: 1px solid rgba(255, 246, 229, 0.22);
+    font: 600 11px/1.3 "Trebuchet MS", "Segoe UI", sans-serif;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: #c8f0e4; text-align: right;
+    pointer-events: none; user-select: none; z-index: 5;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  }
+  #turf-income .turf-cash {
+    display: block; margin-top: 2px;
+    font: 700 15px/1.2 "Trebuchet MS", "Segoe UI", sans-serif;
+    letter-spacing: 0.06em; color: #ffe9c9;
+  }
   #start {
     position: fixed; inset: 0; display: none;
     align-items: center; justify-content: center;
@@ -63,8 +79,9 @@
 <div id="hud"></div>
 <canvas id="minimap" width="132" height="132"></canvas>
 <div id="objective"></div>
+<div id="turf-income" aria-live="off"><span class="turf-label">TURF INCOME</span><span class="turf-cash">$0 / tick</span></div>
 <div id="start"></div>
-<div id="title">MARISOL BAY<small>A SUN-SOAKED COASTAL CITY</small></div>
+<div id="title">MARISOL BAY<small>A SUN-SOAKED COASTAL CITY &middot; BEACHFRONT &middot; MARINA &middot; DOWNTOWN &middot; HILLSIDE &middot; PORTSIDE &middot; OLD QUARTER</small></div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

@@ -1,437 +1,446 @@
-// MARISOL BAY - heads-up display: start screen, readouts, minimap, jobs, pause.
+// MARISOL BAY - HUD layer: cash, health, wanted stars, turf progress, objective
+// banner, speed/vehicle readout, the minimap canvas, title + pause + jobs menus,
+// mission cards, toasts and damage feedback. DOM and 2D canvas only: no images,
+// no external fonts, no network.
 
-import { DISTRICTS, WORLD, TURF } from './config.js';
+import {
+  DISTRICTS as CONFIG_DISTRICTS,
+  WORLD as CONFIG_WORLD,
+  SAVE_KEY as CONFIG_SAVE_KEY,
+  TURF as CONFIG_TURF,
+  TURF_INCOME_TICK as CONFIG_INCOME_TICK,
+  TURF_INCOME_PER_TICK as CONFIG_INCOME_PER_TICK,
+} from './config.js';
+
+const INCOME_TICK = typeof CONFIG_INCOME_TICK === 'number' ? CONFIG_INCOME_TICK : 25;
+const INCOME_PER_TICK = typeof CONFIG_INCOME_PER_TICK === 'number' ? CONFIG_INCOME_PER_TICK : 60;
+
+const TUNE = {
+  mapSize: 132,
+  mapHz: 12,
+  toastLife: 3.2,
+  toastMax: 4,
+  cardLife: 6.5,
+  damageFlash: 1.0,
+  lowHealth: 34,
+  districtCount: typeof CONFIG_TURF === 'object' && CONFIG_TURF && CONFIG_TURF.districtCount
+    ? CONFIG_TURF.districtCount
+    : 6,
+};
+
+// Minimap world window: a little ocean west of the beach, everything else city.
+const BOUNDS = { x0: -258, x1: 236, z0: -232, z1: 232 };
+
+const VEHICLE_NAMES = {
+  sedan: 'Sedan',
+  taxi: 'Marisol Cab',
+  van: 'Cargo Van',
+  sport: 'Kite Coupe',
+};
+
+const DISTRICTS = Array.isArray(CONFIG_DISTRICTS) && CONFIG_DISTRICTS.length
+  ? CONFIG_DISTRICTS
+  : [
+    { key: 'beachfront', name: 'Beachfront', center: { x: -199, z: 0 }, size: { w: 26, d: 460 }, ground: 0xe6d6b2, accent: 0x2fb6c9 },
+    { key: 'marina', name: 'Marina', center: { x: -103, z: 105 }, size: { w: 166, d: 250 }, ground: 0xa8a89c, accent: 0x1c8a9c },
+    { key: 'oldquarter', name: 'Old Quarter', center: { x: -103, z: -125 }, size: { w: 166, d: 210 }, ground: 0xa2927c, accent: 0x8c3b2e },
+    { key: 'downtown', name: 'Downtown', center: { x: 45, z: -125 }, size: { w: 130, d: 210 }, ground: 0x9a9c98, accent: 0x2a6f8e },
+    { key: 'portside', name: 'Portside', center: { x: 170, z: 170 }, size: { w: 120, d: 120 }, ground: 0x8b8a80, accent: 0xb4552e },
+    { key: 'hillside', name: 'Hillside', center: { x: 105, z: 105 }, size: { w: 250, d: 250 }, ground: 0x93a06a, accent: 0x3f7a4a },
+  ];
+
+const WORLD = CONFIG_WORLD || {
+  landEdgeX: -212,
+  sandCenterX: -198,
+  sandWidth: 28,
+  promenadeX: -178,
+  promenadeWidth: 12,
+  maxX: 226,
+  gridLinesX: [-140, -80, -20, 40, 100, 160, 220],
+  gridLinesZ: [-200, -140, -80, -20, 40, 100, 160, 220],
+};
+
+const SAVE_KEY = CONFIG_SAVE_KEY || 'marisol-bay-save-v1';
 
 const STYLE_ID = 'mb-hud-style';
-const MAP_SIZE = 190;
-const MAP_PAD = 7;
-const TOAST_LIMIT = 3;
 
-const PANEL_BG = 'rgba(9, 17, 25, 0.55)';
-const PANEL_EDGE = 'rgba(255, 236, 205, 0.18)';
-const AMBER = '#ffb347';
-const CREAM = '#ffe9c9';
+const CSS = `
+.mb-topright{position:absolute;right:18px;top:16px;display:flex;flex-direction:column;align-items:flex-end;gap:5px;text-align:right;}
+.mb-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:5px;
+  background:rgba(9,16,24,.42);border:1px solid rgba(255,246,229,.16);
+  font:600 10px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.16em;color:#ffd9a8;text-transform:uppercase;}
+.mb-dot{width:6px;height:6px;border-radius:50%;background:#ffd166;box-shadow:0 0 7px rgba(255,209,102,.75);}
+.mb-chip.tod-dusk .mb-dot{background:#ff9d5c;box-shadow:0 0 8px rgba(255,120,60,.85);}
+.mb-chip.tod-night .mb-dot{background:#7fb2ff;box-shadow:0 0 8px rgba(110,160,255,.85);}
+.mb-cash{font:700 27px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.04em;color:#fff4de;
+  text-shadow:0 2px 12px rgba(0,0,0,.6),0 0 22px rgba(255,150,60,.22);}
+.mb-stars{font-size:19px;line-height:1;letter-spacing:3px;color:rgba(255,246,229,.16);}
+.mb-stars .on{color:#ffd166;text-shadow:0 0 9px rgba(255,190,60,.75);}
+.mb-stars.hot{animation:mb-flash .62s steps(2,end) infinite;}
+@keyframes mb-flash{50%{opacity:.35;}}
+.mb-turf{min-width:152px;padding:6px 8px 7px;border-radius:6px;background:rgba(9,16,24,.4);
+  border:1px solid rgba(255,246,229,.14);text-align:left;}
+.mb-turf-top{display:flex;justify-content:space-between;align-items:baseline;
+  font:700 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.16em;color:#ffcf9b;text-transform:uppercase;}
+.mb-turf-top b{font-size:11px;color:#fff2dd;letter-spacing:.08em;}
+.mb-pips{display:flex;gap:3px;margin:6px 0 5px;}
+.mb-pip{flex:1;height:5px;border-radius:2px;background:rgba(255,246,229,.16);}
+.mb-pip.on{background:linear-gradient(90deg,#ffb347,#ffd166);box-shadow:0 0 7px rgba(255,180,70,.45);}
+.mb-income{font:600 9px/1.2 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.12em;color:#e7d8c0;opacity:.82;text-transform:uppercase;}
+.mb-health{position:absolute;left:28px;bottom:104px;width:212px;}
+.mb-health-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;
+  font:700 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.16em;color:#ffcf9b;text-transform:uppercase;}
+.mb-health-top b{color:#fff2dd;letter-spacing:.06em;}
+.mb-health-bar{height:7px;border-radius:3px;background:rgba(8,14,20,.62);
+  border:1px solid rgba(255,246,229,.22);overflow:hidden;}
+.mb-health-fill{height:100%;width:100%;background:linear-gradient(90deg,#54d98c,#a8e05f);}
+.mb-health-fill.mid{background:linear-gradient(90deg,#ffc247,#ffd97a);}
+.mb-health-fill.low{background:linear-gradient(90deg,#ff5a4d,#ff8b6a);box-shadow:0 0 10px rgba(255,80,60,.6);}
+.mb-health-foot{margin-top:4px;font:600 9px/1.2 "Trebuchet MS","Segoe UI",sans-serif;
+  letter-spacing:.14em;color:#ffe9c9;opacity:.72;text-transform:uppercase;}
+.mb-speed{position:absolute;right:170px;bottom:18px;text-align:right;opacity:0;transform:translateY(4px);
+  transition:opacity .18s ease,transform .18s ease;}
+.mb-speed.on{opacity:1;transform:translateY(0);}
+.mb-speed-num{font:700 30px/1 "Trebuchet MS","Segoe UI",sans-serif;color:#fff4de;
+  text-shadow:0 2px 12px rgba(0,0,0,.6);}
+.mb-speed-unit{margin-left:4px;font:600 9px/1 "Trebuchet MS","Segoe UI",sans-serif;
+  letter-spacing:.18em;color:#ffcf9b;}
+.mb-vehicle{font:600 10px/1.5 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.14em;
+  color:#ffe9c9;opacity:.8;text-transform:uppercase;}
+.mb-controls{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);
+  font:600 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.14em;color:#ffe9c9;
+  opacity:.5;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.75);text-transform:uppercase;}
+.mb-vignette{position:absolute;inset:0;pointer-events:none;opacity:0;
+  background:radial-gradient(ellipse at center,rgba(0,0,0,0) 36%,rgba(170,22,22,.62) 100%);}
+.mb-toasts{position:absolute;left:50%;bottom:126px;transform:translateX(-50%);
+  display:flex;flex-direction:column-reverse;align-items:center;gap:6px;width:max-content;max-width:62vw;}
+.mb-toast{max-width:62vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  padding:6px 12px;border-radius:4px;border:1px solid rgba(255,209,102,.28);border-left:2px solid #ffb347;
+  background:rgba(9,16,24,.62);color:#fff2dd;text-transform:uppercase;
+  font:600 11px/1.2 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;
+  text-shadow:0 1px 2px rgba(0,0,0,.85);}
+.mb-toast.cash{border-left-color:#54d98c;border-color:rgba(84,217,140,.3);}
+.mb-toast.good{border-left-color:#ffd166;}
+.mb-toast.heat{border-left-color:#ff5a4d;border-color:rgba(255,90,77,.36);}
+.mb-toast.cool{border-left-color:#7fd8d0;border-color:rgba(127,216,208,.32);}
+.mb-obj-title{font:700 10.5px/1.5 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.16em;color:#ffd166;}
+.mb-obj-text{font:600 11.5px/1.45 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#f2e6d3;}
+.mb-obj-bar{width:200px;height:4px;margin-top:6px;border-radius:2px;overflow:hidden;
+  background:rgba(8,14,20,.55);border:1px solid rgba(255,246,229,.14);}
+.mb-obj-fill{height:100%;width:0;background:linear-gradient(90deg,#ffb347,#ffd166);}
+.mb-obj-prog{margin-top:3px;font:600 9px/1.2 "Trebuchet MS","Segoe UI",sans-serif;
+  letter-spacing:.14em;color:#ffcf9b;opacity:.85;}
+#start{display:none;align-items:center;justify-content:center;}
+#start.hidden{display:none !important;}
+#start [hidden]{display:none !important;}
+.mb-panel{position:relative;pointer-events:auto;width:min(560px,88vw);max-height:88vh;overflow:auto;
+  padding:26px 30px 24px;border-radius:12px;color:#f4ecdc;
+  background:linear-gradient(160deg,rgba(11,20,29,.95),rgba(19,27,39,.93));
+  border:1px solid rgba(255,209,102,.22);box-shadow:0 26px 74px rgba(0,0,0,.6);
+  font:500 13px/1.5 "Trebuchet MS","Segoe UI",sans-serif;}
+.mb-kicker{font:700 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.3em;color:#7fd8d0;text-transform:uppercase;}
+.mb-title{margin:8px 0 4px;font:700 clamp(34px,7vw,50px)/0.96 "Trebuchet MS","Segoe UI",sans-serif;
+  letter-spacing:.14em;color:#fff6e5;text-shadow:0 4px 30px rgba(255,128,52,.4);}
+.mb-sub{font:600 10px/1.4 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.22em;color:#ffcf9b;text-transform:uppercase;}
+.mb-lede{margin:14px 0 0;color:#cfd8dd;font-size:12.5px;line-height:1.55;}
+.mb-keys{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;margin:16px 0 2px;
+  font-size:11.5px;color:#c9d4da;}
+.mb-key{font:700 10px/1.6 "Consolas","Menlo",monospace;letter-spacing:.04em;color:#ffd166;white-space:nowrap;}
+.mb-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;}
+.mb-btn{pointer-events:auto;cursor:pointer;padding:11px 16px;border-radius:6px;
+  border:1px solid rgba(255,246,229,.28);background:rgba(255,246,229,.06);color:#fff2dd;
+  font:700 11px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.16em;text-transform:uppercase;
+  transition:background .15s ease,border-color .15s ease;}
+.mb-btn:hover{background:rgba(255,246,229,.15);border-color:rgba(255,246,229,.5);}
+.mb-btn.primary{background:linear-gradient(180deg,#ffb347,#e88a2c);border-color:#ffcf9b;color:#20160c;}
+.mb-btn.primary:hover{background:linear-gradient(180deg,#ffc264,#f09736);}
+.mb-note{margin-top:14px;font:400 10.5px/1.45 "Trebuchet MS","Segoe UI",sans-serif;color:#8fa0ab;}
+.mb-stats{display:grid;grid-template-columns:1fr auto;gap:6px 18px;margin-top:16px;
+  padding-top:14px;border-top:1px solid rgba(255,246,229,.12);font-size:12px;}
+.mb-stats span:nth-child(odd){color:#a8b6bf;text-transform:uppercase;font-size:10px;letter-spacing:.14em;line-height:1.9;}
+.mb-stats span:nth-child(even){color:#ffe9c9;font-weight:700;text-align:right;}
+.mb-card-head{font:700 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.3em;color:#7fd8d0;text-transform:uppercase;}
+.mb-card-title{margin:10px 0 4px;font:700 30px/1.05 "Trebuchet MS","Segoe UI",sans-serif;
+  letter-spacing:.1em;color:#ffd166;text-transform:uppercase;}
+.mb-card.bad .mb-card-title{color:#ff8b6a;}
+.mb-card-sub{font:600 11px/1.45 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#c9d4da;}
+.mb-rows{display:grid;grid-template-columns:1fr auto;gap:6px 18px;margin-top:16px;font-size:12px;}
+.mb-rows .k{color:#a8b6bf;text-transform:uppercase;font-size:10px;letter-spacing:.14em;line-height:1.9;}
+.mb-rows .v{color:#ffe9c9;font-weight:700;text-align:right;}
+.mb-jobs{margin-top:14px;display:flex;flex-direction:column;gap:6px;max-height:42vh;overflow:auto;}
+.mb-job{display:flex;justify-content:space-between;gap:12px;padding:7px 9px;border-radius:5px;
+  background:rgba(255,246,229,.04);border:1px solid rgba(255,246,229,.1);font-size:11.5px;}
+.mb-job b{color:#fff2dd;font-weight:700;letter-spacing:.05em;}
+.mb-job span{color:#a8b6bf;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;}
+.mb-job.done{opacity:.5;}
+.mb-job.done b{text-decoration:line-through;}
+`;
 
-function num(value, fallback) {
-  return typeof value === 'number' && isFinite(value) ? value : fallback;
+// --------------------------------------------------------------------- helpers
+
+function make(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
 }
 
-function str(value, fallback) {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function clamp(value, min, max) {
-  return value < min ? min : value > max ? max : value;
+function clamp(v, min, max) {
+  return v < min ? min : v > max ? max : v;
 }
 
 function money(value) {
-  const n = Math.round(num(value, 0));
-  const sign = n < 0 ? '-' : '';
-  return sign + '$' + Math.abs(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const n = Math.max(0, Math.round(Number.isFinite(value) ? value : 0));
+  return '$' + n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-function swatch(entry) {
-  const palette = entry && entry.palette;
-  if (Array.isArray(palette) && palette.length) {
-    const raw = String(palette[0]);
-    if (raw.charAt(0) === '#') return raw;
-    if (raw.charAt(0) !== '0') return '#' + raw;
+function numOf() {
+  for (let i = 0; i < arguments.length; i++) {
+    const v = arguments[i];
+    if (typeof v === 'number' && isFinite(v)) return v;
   }
-  const ground = entry && entry.ground;
-  if (typeof ground === 'number') return '#' + ground.toString(16).padStart(6, '0');
-  return '#b9c4c0';
+  return null;
 }
 
-function healthColor(health) {
-  const h = clamp(health, 0, 100) / 100;
-  let r;
-  let g;
-  let b;
-  if (h > 0.55) {
-    const t = (h - 0.55) / 0.45;
-    r = Math.round(255 + (110 - 255) * t);
-    g = Math.round(183 + (224 - 183) * t);
-    b = Math.round(71 + (140 - 71) * t);
-  } else {
-    const t = h / 0.55;
-    r = Math.round(255 + (255 - 255) * t);
-    g = Math.round(78 + (183 - 78) * t);
-    b = Math.round(64 + (71 - 64) * t);
+function textOf() {
+  for (let i = 0; i < arguments.length; i++) {
+    const v = arguments[i];
+    if (typeof v === 'string' && v.length) return v;
   }
-  return 'rgb(' + r + ', ' + g + ', ' + b + ')';
+  return '';
 }
 
-function statusLabel(status) {
-  const s = str(status, '').toLowerCase();
-  if (s === 'done' || s === 'complete' || s === 'completed') return 'COMPLETE';
-  if (s === 'active' || s === 'inprogress' || s === 'in-progress' || s === 'started' || s === 'current') {
-    return 'ACTIVE';
+function hexOf(value) {
+  if (typeof value === 'string') return value;
+  const n = Number.isFinite(value) ? value : 0x888888;
+  return '#' + (n & 0xffffff).toString(16).padStart(6, '0');
+}
+
+function pressKey(code, key) {
+  if (typeof window === 'undefined' || typeof window.KeyboardEvent !== 'function') return false;
+  try {
+    window.dispatchEvent(new window.KeyboardEvent('keydown', {
+      code,
+      key: key || '',
+      bubbles: true,
+    }));
+    return true;
+  } catch (err) {
+    return false;
   }
-  if (s === 'failed') return 'FAILED';
-  if (s === 'locked') return 'LOCKED';
-  return 'OPEN';
 }
 
-function isDone(status) {
-  const s = str(status, '').toLowerCase();
-  return s === 'done' || s === 'complete' || s === 'completed';
+function hasSave() {
+  try {
+    return typeof localStorage !== 'undefined' && !!localStorage.getItem(SAVE_KEY);
+  } catch (err) {
+    return false;
+  }
 }
 
-function isActive(status) {
-  const s = str(status, '').toLowerCase();
-  return s === 'active' || s === 'inprogress' || s === 'in-progress' || s === 'started' || s === 'current';
+function readTurf(turf, takenCount) {
+  const owned = {};
+  const pct = {};
+  let count = 0;
+  if (Array.isArray(turf)) {
+    const map = {};
+    for (let i = 0; i < turf.length; i++) {
+      const entry = turf[i];
+      if (typeof entry === 'string') map[entry] = true;
+      else if (entry && typeof entry === 'object' && entry.key) {
+        map[entry.key] = numOf(entry.progress, entry.value) === null ? !!entry.taken : entry.progress;
+      }
+    }
+    turf = map;
+  }
+  if (turf && typeof turf === 'object') {
+    let src = turf;
+    if (turf.taken && typeof turf.taken === 'object' && !Array.isArray(turf.taken)) src = turf.taken;
+    else if (turf.districts && typeof turf.districts === 'object' && !Array.isArray(turf.districts)) src = turf.districts;
+    const listed = Array.isArray(turf.owned) ? turf.owned : Array.isArray(turf.list) ? turf.list : null;
+    if (listed) {
+      for (let i = 0; i < listed.length; i++) {
+        const entry = listed[i];
+        const key = typeof entry === 'string' ? entry : entry && entry.key;
+        if (key) src[key] = true;
+      }
+    }
+    for (let i = 0; i < DISTRICTS.length; i++) {
+      const key = DISTRICTS[i].key;
+      const v = src[key];
+      const raw = turf[key];
+      let own = false;
+      let progress = 0;
+      if (typeof v === 'boolean') {
+        own = v;
+        progress = v ? 100 : 0;
+      } else if (typeof v === 'number') {
+        progress = clamp(v, 0, 100);
+        own = v >= 100;
+      } else if (v && typeof v === 'object') {
+        progress = clamp(numOf(v.progress, v.value, v.percent) || 0, 0, 100);
+        own = !!v.taken || progress >= 100;
+      }
+      if (!own && raw !== v) {
+        if (raw === true) {
+          own = true;
+          progress = 100;
+        } else if (typeof raw === 'number' && raw > progress) {
+          progress = clamp(raw, 0, 100);
+          own = raw >= 100;
+        }
+      }
+      pct[key] = own ? 100 : progress;
+      if (own) {
+        owned[key] = true;
+        count++;
+      }
+    }
+  }
+  const reported = numOf(takenCount);
+  if (reported !== null && reported > count) count = clamp(Math.round(reported), 0, TUNE.districtCount);
+  return { owned, pct, count };
 }
 
-const CSS = `
-body #hud { z-index: 6; }
+function readObjective(objective, districtName) {
+  const where = districtName ? districtName.toUpperCase() + ' \u00b7 ' : '';
+  const fallback = {
+    title: 'Free Roam',
+    text: where + 'Press J for the next job',
+    progress: '',
+    ratio: -1,
+  };
+  if (!objective) return fallback;
+  if (typeof objective === 'string') {
+    return { title: 'Objective', text: objective, progress: '', ratio: -1 };
+  }
+  if (typeof objective !== 'object') return fallback;
 
-body #minimap {
-  position: fixed; left: 18px; bottom: 18px; right: auto; top: auto;
-  width: ${MAP_SIZE}px; height: ${MAP_SIZE}px; border-radius: 12px;
-  background: rgba(7, 14, 21, 0.55);
-  border: 1px solid ${PANEL_EDGE};
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-  pointer-events: none; z-index: 5;
-  transition: opacity 0.22s ease;
-}
-body #minimap.mb-map-off { opacity: 0; visibility: hidden; }
+  const title = textOf(
+    objective.title,
+    objective.label,
+    objective.name,
+    objective.heading,
+  ) || 'Objective';
+  const text = textOf(
+    objective.text,
+    objective.detail,
+    objective.description,
+    objective.objective,
+    objective.goal,
+    objective.hint,
+    objective.message,
+  );
 
-body #objective {
-  position: fixed; left: 50%; top: auto; right: auto; bottom: 20px;
-  transform: translateX(-50%);
-  max-width: min(58vw, 560px); width: max-content;
-  padding: 9px 18px 11px; border-radius: 10px;
-  background: ${PANEL_BG};
-  border: 1px solid ${PANEL_EDGE};
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.34);
-  text-align: center; pointer-events: none; z-index: 5;
-  font: 600 11px/1.45 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.12em; text-transform: uppercase;
-  color: ${CREAM}; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
-}
-body #objective:empty { display: none; }
+  let done = null;
+  let total = null;
+  const p = objective.progress;
+  if (typeof p === 'number') {
+    done = p;
+    total = numOf(objective.target, objective.total);
+  } else if (p && typeof p === 'object') {
+    done = numOf(p.done, p.current, p.value, p.count);
+    total = numOf(p.total, p.target, p.max, p.required);
+  }
+  if (done === null) {
+    done = numOf(objective.count, objective.current, objective.collected, objective.done);
+    total = numOf(objective.total, objective.target, objective.required);
+  }
 
-body #start {
-  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-  z-index: 7; padding: 24px;
-  background:
-    radial-gradient(120% 90% at 22% 8%, rgba(255, 166, 84, 0.20), transparent 55%),
-    radial-gradient(90% 80% at 82% 96%, rgba(47, 182, 201, 0.16), transparent 60%),
-    rgba(6, 12, 18, 0.72);
-}
-body #start.mb-splash-hidden { display: none !important; }
-body #start .mb-start-inner {
-  width: min(560px, 94vw); padding: 30px 34px 26px; border-radius: 16px;
-  background: linear-gradient(165deg, rgba(14, 24, 34, 0.90), rgba(8, 15, 22, 0.94));
-  border: 1px solid rgba(255, 226, 183, 0.22);
-  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  color: ${CREAM};
-  font: 500 13px/1.5 "Trebuchet MS", "Segoe UI", sans-serif;
-  text-align: center;
-}
-body #start .mb-splash-title {
-  font: 700 44px/1.04 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.16em; color: #fff6e5;
-  text-shadow: 0 4px 30px rgba(255, 132, 58, 0.55), 0 1px 2px rgba(0, 0, 0, 0.7);
-}
-body #start .mb-splash-sub {
-  margin-top: 9px; font-size: 12px; letter-spacing: 0.18em;
-  text-transform: uppercase; color: #ffcf9b; opacity: 0.92;
-}
-body #start .mb-start-btn {
-  margin: 22px auto 20px; display: block; cursor: pointer;
-  padding: 12px 44px; border-radius: 999px; border: 1px solid rgba(255, 196, 132, 0.6);
-  background: linear-gradient(180deg, #ffc572, #f0913a);
-  color: #23160b; font: 700 15px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.22em; text-transform: uppercase;
-  box-shadow: 0 10px 26px rgba(240, 145, 58, 0.34);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
-}
-body #start .mb-start-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
-body #start .mb-start-btn:active { transform: translateY(1px); box-shadow: 0 5px 14px rgba(240, 145, 58, 0.3); }
-body #start .mb-keys {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 5px 18px; margin: 0 auto; max-width: 420px; text-align: left;
-  font-size: 11.5px; letter-spacing: 0.06em; color: #e7dcc9;
-}
-body #start .mb-keys span { opacity: 0.86; }
-body #start .mb-keys b {
-  display: inline-block; min-width: 52px; margin-right: 6px;
-  color: ${AMBER}; font-weight: 700; letter-spacing: 0.1em;
-}
-body #start .mb-honest {
-  margin-top: 20px; padding-top: 13px; border-top: 1px solid rgba(255, 236, 205, 0.14);
-  font-size: 11px; letter-spacing: 0.05em; color: #cbbca6; opacity: 0.8;
+  let progress = '';
+  if (typeof objective.progressText === 'string' && objective.progressText.length) {
+    progress = objective.progressText;
+  } else if (done !== null && total !== null && total > 0) {
+    progress = Math.round(done) + ' / ' + Math.round(total);
+  } else if (done !== null) {
+    progress = String(Math.round(done));
+  } else if (typeof objective.remaining === 'number') {
+    progress = Math.round(objective.remaining) + ' left';
+  }
+  if (!progress) {
+    const left = numOf(objective.timeLeft, objective.timer, objective.clock);
+    if (left !== null) progress = 'Time ' + Math.max(0, Math.ceil(left)) + 's';
+  }
+
+  let ratio = -1;
+  if (done !== null && total !== null && total > 0) ratio = clamp(done / total, 0, 1);
+
+  return { title, text: text || fallback.text, progress, ratio };
 }
 
-.mb-panel {
-  position: absolute; border-radius: 10px;
-  background: ${PANEL_BG};
-  border: 1px solid ${PANEL_EDGE};
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
-  padding: 10px 12px;
-}
-.mb-tl { left: 18px; top: 18px; min-width: 186px; }
-.mb-tr { right: 18px; top: 18px; text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.mb-label {
-  font: 700 9.5px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.2em; text-transform: uppercase; color: #c9bda9; opacity: 0.8;
-}
-.mb-health-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-.mb-health-label {
-  font: 700 9.5px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.16em; color: #d8cbb8; min-width: 48px;
-}
-.mb-health-track {
-  position: relative; flex: 1; height: 8px; border-radius: 999px; overflow: hidden;
-  background: rgba(255, 255, 255, 0.09);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
-}
-.mb-health-fill {
-  height: 100%; width: 100%; border-radius: 999px;
-  background: #6fe08c; transition: width 0.16s linear, background-color 0.3s linear;
-}
-.mb-health-num {
-  font: 700 10px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.06em; color: #f0e6d5; min-width: 26px; text-align: right;
-}
-.mb-ammo-row {
-  display: flex; align-items: baseline; justify-content: space-between;
-  margin-top: 8px; gap: 12px;
-}
-.mb-ammo-val {
-  font: 700 15px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.08em; color: #fff3df;
-}
-.mb-district {
-  margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255, 236, 205, 0.12);
-  font: 700 11px/1.2 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.16em; text-transform: uppercase; color: #ffd79c;
-}
-.mb-stars { display: flex; gap: 3px; justify-content: flex-end; }
-.mb-star {
-  font-size: 19px; line-height: 1; color: rgba(255, 236, 205, 0.16);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-  transition: color 0.15s linear, text-shadow 0.15s linear;
-}
-.mb-star.mb-on { color: ${AMBER}; text-shadow: 0 0 12px rgba(255, 179, 71, 0.75); }
-.mb-cash {
-  font: 700 20px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.06em; color: #b8f0c9;
-  text-shadow: 0 1px 8px rgba(88, 220, 138, 0.3);
-}
-.mb-jobs-btn {
-  pointer-events: auto; cursor: pointer; margin-top: 2px;
-  padding: 5px 12px; border-radius: 7px;
-  font: 700 10px/1.4 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.14em; text-transform: uppercase;
-  color: #ffe4bd; background: rgba(255, 179, 71, 0.10);
-  border: 1px solid rgba(255, 196, 132, 0.34);
-  transition: background 0.14s ease, color 0.14s ease;
-}
-.mb-jobs-btn:hover { background: rgba(255, 179, 71, 0.2); }
-.mb-jobs-btn.mb-open { background: rgba(255, 179, 71, 0.26); color: #fff; }
-
-.mb-objective-text { display: block; }
-.mb-objective-text.mb-empty { opacity: 0.5; letter-spacing: 0.18em; }
-.mb-turf { margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 8px; }
-.mb-turf-label {
-  font: 700 9.5px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.16em; color: #d6c9b5;
-}
-.mb-turf-segs { display: flex; gap: 3px; }
-.mb-seg {
-  width: 18px; height: 6px; border-radius: 2px;
-  background: rgba(255, 236, 205, 0.13);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
-  transition: background 0.2s linear, box-shadow 0.2s linear;
-}
-.mb-seg.mb-filled { box-shadow: 0 0 8px rgba(255, 190, 110, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.24); }
-
-.mb-speed {
-  position: absolute; right: 22px; bottom: 24px; text-align: right;
-  font: 700 34px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.02em; color: #fff6e5;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6), 0 0 22px rgba(255, 170, 80, 0.22);
-  display: none;
-}
-.mb-speed.mb-show { display: block; }
-.mb-speed small {
-  display: block; margin-top: 3px;
-  font: 700 9.5px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.24em; color: #ffce92; opacity: 0.85;
+function toastKind(text) {
+  const t = String(text || '').toUpperCase();
+  if (t.indexOf('HEAT CLEARED') >= 0 || t.indexOf('MUTED') >= 0) return 'cool';
+  if (t.indexOf('MISSION COMPLETE') >= 0 || t.indexOf('TAKEN OVER') >= 0) return 'good';
+  if (t.indexOf('MISSION FAILED') >= 0 || t.indexOf('BUSTED') >= 0 || t.indexOf('WASTED') >= 0) return 'heat';
+  if (t.indexOf('WANTED') >= 0 || t.indexOf('HEAT') >= 0) return 'heat';
+  if (t.indexOf('+$') >= 0 || t.indexOf('PAID') >= 0 || t.indexOf('STASH') >= 0 || t.indexOf('INCOME') >= 0) return 'cash';
+  return '';
 }
 
-.mb-toasts {
-  position: absolute; left: 50%; top: 88px; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 7px;
-  width: max-content; max-width: 72vw; pointer-events: none;
-}
-.mb-toast {
-  padding: 8px 18px; border-radius: 8px;
-  background: rgba(10, 19, 27, 0.82);
-  border: 1px solid rgba(255, 196, 132, 0.4);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
-  font: 700 11px/1.35 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.14em; text-transform: uppercase; text-align: center;
-  color: #ffe6c2;
-  animation: mb-toast-in 0.18s ease-out;
-}
-.mb-toast.mb-toast-out { opacity: 0; transform: translateY(-6px); transition: opacity 0.24s ease, transform 0.24s ease; }
-@keyframes mb-toast-in {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.mb-jobs {
-  position: absolute; right: 18px; top: 132px; width: 296px; max-height: 48vh;
-  display: none; flex-direction: column; gap: 8px; padding: 12px 13px;
-  border-radius: 11px; background: rgba(9, 17, 25, 0.82);
-  border: 1px solid ${PANEL_EDGE};
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.46);
-  pointer-events: auto; overflow: hidden;
-}
-.mb-jobs.mb-open { display: flex; }
-.mb-jobs-head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  padding-bottom: 8px; border-bottom: 1px solid rgba(255, 236, 205, 0.14);
-}
-.mb-jobs-title {
-  font: 700 11px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.2em; color: #ffd79c;
-}
-.mb-jobs-count {
-  font: 700 9.5px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.14em; color: #b9ad99;
-}
-.mb-jobs-list { display: flex; flex-direction: column; gap: 7px; overflow-y: auto; padding-right: 3px; }
-.mb-jobs-list::-webkit-scrollbar { width: 5px; }
-.mb-jobs-list::-webkit-scrollbar-thumb { background: rgba(255, 196, 132, 0.28); border-radius: 999px; }
-.mb-job {
-  padding: 8px 10px; border-radius: 8px;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 236, 205, 0.10);
-  border-left: 2px solid rgba(255, 236, 205, 0.18);
-}
-.mb-job.mb-job-active {
-  background: rgba(255, 179, 71, 0.10);
-  border-color: rgba(255, 196, 132, 0.4);
-  border-left-color: ${AMBER};
-}
-.mb-job.mb-job-done { opacity: 0.62; border-left-color: #67c98a; }
-.mb-job-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.mb-job-name {
-  font: 700 12px/1.3 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.04em; color: #fff2dd;
-}
-.mb-job-reward {
-  font: 700 10.5px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.06em; color: #a9e9bf; white-space: nowrap;
-}
-.mb-job-meta {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  margin-top: 4px;
-  font: 700 8.5px/1.2 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.16em; text-transform: uppercase; color: #b3a794;
-}
-.mb-job-status { color: #ffce92; }
-.mb-job-status.mb-st-done { color: #8fdcab; }
-.mb-job-status.mb-st-active { color: #ffd06b; }
-.mb-jobs-note {
-  padding: 6px 2px 2px; text-align: center;
-  font: 700 9.5px/1.4 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.16em; text-transform: uppercase; color: #a9e9bf;
-}
-.mb-jobs-empty {
-  padding: 10px 4px; text-align: center;
-  font: 600 10.5px/1.5 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.1em; color: #b3a794;
-}
-
-.mb-pause {
-  position: absolute; inset: 0; display: none;
-  align-items: center; justify-content: center; z-index: 6;
-  background: rgba(6, 12, 18, 0.62);
-  pointer-events: auto;
-  backdrop-filter: blur(2px);
-}
-.mb-pause.mb-open { display: flex; }
-.mb-pause-inner {
-  width: min(340px, 90vw); padding: 26px 28px; border-radius: 14px; text-align: center;
-  background: linear-gradient(165deg, rgba(14, 24, 34, 0.94), rgba(8, 15, 22, 0.96));
-  border: 1px solid rgba(255, 226, 183, 0.22);
-  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.55);
-  font: 500 12px/1.5 "Trebuchet MS", "Segoe UI", sans-serif; color: ${CREAM};
-}
-.mb-pause-title {
-  font: 700 30px/1.1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.28em; color: #fff6e5;
-  text-shadow: 0 3px 22px rgba(255, 150, 70, 0.4);
-}
-.mb-pause-sub {
-  margin-top: 8px; font: 600 10.5px/1.4 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.16em; text-transform: uppercase; color: #d3c4ae;
-}
-.mb-resume-btn {
-  margin: 20px auto 14px; display: block; cursor: pointer;
-  padding: 10px 34px; border-radius: 999px; border: 1px solid rgba(255, 196, 132, 0.55);
-  background: linear-gradient(180deg, #ffc572, #f0913a);
-  color: #23160b; font: 700 12.5px/1 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.2em; text-transform: uppercase;
-  box-shadow: 0 8px 22px rgba(240, 145, 58, 0.32);
-  transition: transform 0.12s ease, filter 0.12s ease;
-}
-.mb-resume-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
-.mb-pause-stats {
-  padding-top: 11px; border-top: 1px solid rgba(255, 236, 205, 0.14);
-  font: 700 10px/1.5 "Trebuchet MS", "Segoe UI", sans-serif;
-  letter-spacing: 0.14em; color: #ffd79c;
-}
-body.mb-started #title { opacity: 0; transition: opacity 0.6s ease; }
-
-`;
-
-function panel(cls) {
-  const node = document.createElement('div');
-  node.className = 'mb-panel ' + cls;
-  return node;
-}
-
-function label(text) {
-  const node = document.createElement('div');
-  node.className = 'mb-label';
-  node.textContent = text;
-  return node;
+function drawMarkerList(snap) {
+  const out = [];
+  const push = (list) => {
+    if (!Array.isArray(list)) return;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
+      if (!p || typeof p !== 'object') continue;
+      if (p.taken || p.collected || p.done) continue;
+      const x = numOf(p.x, p.px, p.position && p.position.x);
+      const z = numOf(p.z, p.pz, p.position && p.position.z);
+      if (x === null || z === null) continue;
+      out.push({ x, z });
+    }
+  };
+  push(snap.markers);
+  push(snap.pickups);
+  push(snap.collectibles);
+  push(snap.taxiMarkers);
+  push(snap.trialMarkers);
+  return out;
 }
 
 export class HUD {
-  constructor(options) {
-    const opts = options && typeof options === 'object' ? options : {};
-    this.onStart = typeof opts.onStart === 'function' ? opts.onStart : function noop() {};
-    this.onPauseToggle = typeof opts.onPauseToggle === 'function' ? opts.onPauseToggle : function noop() {};
-
+  constructor(callbacks) {
+    this.callbacks = callbacks || {};
+    this.time = 0;
     this.started = false;
     this.playing = false;
     this.paused = false;
     this.mapVisible = true;
+    this.panel = null;
+    this.cardTimer = 0;
+    this.mapAcc = 1;
+    this.mapBase = null;
+    this.snapshot = null;
+    this.toasts = [];
+    this.card = null;
+    this.cache = {};
+    this.wanted = 0;
+    this.turfCount = 0;
 
-    this.time = 0;
-    this._toasts = [];
-    this._jobsOpen = false;
-    this._jobsKey = '';
-    this._minimapReady = false;
+    this.prev = { cash: null, wanted: 0, health: null };
+    this.flash = 0;
+    this.vigValue = -1;
 
-    this._injectStyle();
-    this._buildStart();
-    this._buildHud();
-    this._buildMinimap();
+    this.el = {};
+    this.panels = {};
 
-    this._setStartVisible(true);
-    this._applyMapVisibility();
+    this.injectStyles();
+    this.buildHud();
+    this.buildOverlay();
+    this.initMap();
+    this.openPanel('title');
+    this.refreshTitle();
+    this.syncVisibility();
+
+    this._onResize = () => this.resizeMap();
+    if (typeof window !== 'undefined') window.addEventListener('resize', this._onResize);
   }
 
-  // ---------------------------------------------------------------- style / root
-  _injectStyle() {
+  // ------------------------------------------------------------------- styles
+  injectStyles() {
+    if (typeof document === 'undefined') return;
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement('style');
     style.id = STYLE_ID;
@@ -439,784 +448,1214 @@ export class HUD {
     document.head.appendChild(style);
   }
 
-  _buildStart() {
-    let overlay = document.getElementById('start');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'start';
-      document.body.appendChild(overlay);
-    }
-    overlay.textContent = '';
-    this.startOverlay = overlay;
-
-    const inner = document.createElement('div');
-    inner.className = 'mb-start-inner';
-
-    const title = document.createElement('div');
-    title.className = 'mb-splash-title';
-    title.textContent = 'MARISOL BAY';
-
-    const sub = document.createElement('div');
-    sub.className = 'mb-splash-sub';
-    sub.textContent = 'Take the city, district by district.';
-
-    const startBtn = document.createElement('button');
-    startBtn.type = 'button';
-    startBtn.className = 'mb-start-btn';
-    startBtn.textContent = 'START';
-    startBtn.addEventListener('click', (event) => {
-      if (event && typeof event.preventDefault === 'function') event.preventDefault();
-      this._begin();
-    });
-
-    const keys = document.createElement('div');
-    keys.className = 'mb-keys';
-    const bindings = [
-      ['WASD', 'drive / walk'],
-      ['E', 'enter / exit car'],
-      ['Mouse', 'camera'],
-      ['J', 'next job'],
-      ['H', 'missions'],
-      ['P / Esc', 'pause'],
-      ['M', 'mute'],
-    ];
-    for (let i = 0; i < bindings.length; i++) {
-      const row = document.createElement('span');
-      const key = document.createElement('b');
-      key.textContent = bindings[i][0];
-      row.appendChild(key);
-      row.appendChild(document.createTextNode(bindings[i][1]));
-      keys.appendChild(row);
-    }
-
-    const honest = document.createElement('div');
-    honest.className = 'mb-honest';
-    honest.textContent = "Built by an AI agent for make.fun's Make GTA 6 bounty.";
-
-    inner.appendChild(title);
-    inner.appendChild(sub);
-    inner.appendChild(startBtn);
-    inner.appendChild(keys);
-    inner.appendChild(honest);
-    overlay.appendChild(inner);
+  setText(key, node, value) {
+    if (!node) return;
+    const text = String(value);
+    const cacheKey = 't:' + key;
+    if (this.cache[cacheKey] === text) return;
+    this.cache[cacheKey] = text;
+    node.textContent = text;
   }
 
-  _buildHud() {
-    let root = document.getElementById('hud');
-    if (!root) {
-      root = document.createElement('div');
-      root.id = 'hud';
-      document.body.appendChild(root);
+  setStyle(key, node, prop, value) {
+    if (!node) return;
+    const cacheKey = 's:' + key;
+    if (this.cache[cacheKey] === value) return;
+    this.cache[cacheKey] = value;
+    node.style[prop] = value;
+  }
+
+  // ---------------------------------------------------------------------- HUD
+  buildHud() {
+    if (typeof document === 'undefined') return;
+
+    this.root = document.getElementById('hud');
+    if (!this.root) {
+      this.root = make('div');
+      this.root.id = 'hud';
+      document.body.appendChild(this.root);
     }
-    this.root = root;
+    this.root.style.pointerEvents = 'none';
 
-    const topLeft = panel('mb-tl');
-    const healthRow = document.createElement('div');
-    healthRow.className = 'mb-health-row';
-    const healthLabel = document.createElement('span');
-    healthLabel.className = 'mb-health-label';
-    healthLabel.textContent = 'HEALTH';
-    const track = document.createElement('div');
-    track.className = 'mb-health-track';
-    const fill = document.createElement('div');
-    fill.className = 'mb-health-fill';
-    track.appendChild(fill);
-    const healthNum = document.createElement('span');
-    healthNum.className = 'mb-health-num';
-    healthNum.textContent = '100';
-    healthRow.appendChild(healthLabel);
-    healthRow.appendChild(track);
-    healthRow.appendChild(healthNum);
+    this.startOverlay = document.getElementById('start');
+    if (!this.startOverlay) {
+      this.startOverlay = make('div');
+      this.startOverlay.id = 'start';
+      document.body.appendChild(this.startOverlay);
+    }
+    this.startOverlay.style.display = 'none';
 
-    const ammoRow = document.createElement('div');
-    ammoRow.className = 'mb-ammo-row';
-    const ammoLabel = label('AMMO');
-    const ammoVal = document.createElement('span');
-    ammoVal.className = 'mb-ammo-val';
-    ammoVal.textContent = '0';
-    ammoRow.appendChild(ammoLabel);
-    ammoRow.appendChild(ammoVal);
+    this.objectiveEl = document.getElementById('objective');
+    this.brandEl = document.getElementById('title');
+    this.incomeEl = document.getElementById('turf-income');
 
-    const district = document.createElement('div');
-    district.className = 'mb-district';
-    district.textContent = 'MARISOL BAY';
+    this.minimap = document.getElementById('minimap');
+    if (!this.minimap) {
+      this.minimap = make('canvas');
+      this.minimap.id = 'minimap';
+      this.minimap.width = TUNE.mapSize;
+      this.minimap.height = TUNE.mapSize;
+      document.body.appendChild(this.minimap);
+    }
+    this.mapCtx = this.minimap.getContext ? this.minimap.getContext('2d') : null;
 
-    topLeft.appendChild(healthRow);
-    topLeft.appendChild(ammoRow);
-    topLeft.appendChild(district);
-    this.root.appendChild(topLeft);
+    this.vignette = make('div', 'mb-vignette');
+    this.root.appendChild(this.vignette);
 
-    this.healthFill = fill;
-    this.healthNum = healthNum;
-    this.ammoVal = ammoVal;
-    this.districtEl = district;
-    this.healthTrack = track;
+    const top = make('div', 'mb-topright');
 
-    const topRight = panel('mb-tr');
-    const stars = document.createElement('div');
-    stars.className = 'mb-stars';
-    this.stars = [];
+    this.el.timeDot = make('span', 'mb-dot');
+    this.el.timeLabel = make('span', null, 'Day');
+    this.el.timeChip = make('div', 'mb-chip tod-day');
+    this.el.timeChip.appendChild(this.el.timeDot);
+    this.el.timeChip.appendChild(this.el.timeLabel);
+
+    this.el.cash = make('div', 'mb-cash', '$0');
+
+    this.el.stars = make('div', 'mb-stars');
+    this.el.starSpans = [];
     for (let i = 0; i < 5; i++) {
-      const star = document.createElement('span');
-      star.className = 'mb-star';
-      star.textContent = '\u2605';
-      stars.appendChild(star);
-      this.stars.push(star);
-    }
-    const cash = document.createElement('div');
-    cash.className = 'mb-cash';
-    cash.textContent = '$0';
-
-    const jobsBtn = document.createElement('button');
-    jobsBtn.type = 'button';
-    jobsBtn.className = 'mb-jobs-btn';
-    jobsBtn.textContent = 'JOBS (H)';
-    jobsBtn.addEventListener('click', (event) => {
-      if (event && typeof event.preventDefault === 'function') event.preventDefault();
-      this.toggleMissions();
-    });
-
-    topRight.appendChild(stars);
-    topRight.appendChild(cash);
-    topRight.appendChild(jobsBtn);
-    this.root.appendChild(topRight);
-
-    this.cashEl = cash;
-    this.jobsBtn = jobsBtn;
-
-    let objectiveEl = document.getElementById('objective');
-    if (!objectiveEl) {
-      objectiveEl = document.createElement('div');
-      objectiveEl.id = 'objective';
-      document.body.appendChild(objectiveEl);
-    }
-    objectiveEl.textContent = '';
-    const objectiveText = document.createElement('span');
-    objectiveText.className = 'mb-objective-text';
-    objectiveText.textContent = 'Explore Marisol Bay';
-    const turfRow = document.createElement('div');
-    turfRow.className = 'mb-turf';
-    const turfLabel = document.createElement('span');
-    turfLabel.className = 'mb-turf-label';
-    turfLabel.textContent = 'TURF 0/6';
-    const segs = document.createElement('div');
-    segs.className = 'mb-turf-segs';
-
-    const districtCount = clamp(Math.round(num(TURF && TURF.districtCount, 6)), 1, 12);
-    this.turfSegments = [];
-    for (let i = 0; i < districtCount; i++) {
-      const seg = document.createElement('span');
-      seg.className = 'mb-seg';
-      const entry = DISTRICTS[i];
-      if (entry) seg.style.background = swatch(entry);
-      else seg.style.background = 'rgba(255, 236, 205, 0.13)';
-      seg.style.opacity = '0.32';
-      if (entry && entry.name) seg.title = entry.name;
-      segs.appendChild(seg);
-      this.turfSegments.push(seg);
+      const star = make('span', null, '\u2605');
+      this.el.stars.appendChild(star);
+      this.el.starSpans.push(star);
     }
 
-    turfRow.appendChild(turfLabel);
-    turfRow.appendChild(segs);
-    objectiveEl.appendChild(objectiveText);
-    objectiveEl.appendChild(turfRow);
+    this.el.turf = make('div', 'mb-turf');
+    const turfTop = make('div', 'mb-turf-top');
+    const turfLabel = make('span', null, 'Turf');
+    this.el.turfCount = make('b', null, '0 / 6');
+    turfTop.appendChild(turfLabel);
+    turfTop.appendChild(this.el.turfCount);
+    const pipRow = make('div', 'mb-pips');
+    this.el.pips = [];
+    for (let i = 0; i < TUNE.districtCount; i++) {
+      const pip = make('span', 'mb-pip');
+      pipRow.appendChild(pip);
+      this.el.pips.push(pip);
+    }
+    this.el.income = make('div', 'mb-income', 'No district income');
+    this.el.turf.appendChild(turfTop);
+    this.el.turf.appendChild(pipRow);
+    this.el.turf.appendChild(this.el.income);
 
-    this.objectiveEl = objectiveEl;
-    this.objectiveText = objectiveText;
-    this.turfLabel = turfLabel;
-    this.turfCount = districtCount;
+    top.appendChild(this.el.timeChip);
+    top.appendChild(this.el.cash);
+    top.appendChild(this.el.stars);
+    top.appendChild(this.el.turf);
+    this.root.appendChild(top);
 
-    const speed = document.createElement('div');
-    speed.className = 'mb-speed';
-    const speedNum = document.createElement('span');
-    speedNum.textContent = '0';
-    const speedUnit = document.createElement('small');
-    speedUnit.textContent = 'KM/H';
-    speed.appendChild(speedNum);
-    speed.appendChild(speedUnit);
+    const health = make('div', 'mb-health');
+    const healthTop = make('div', 'mb-health-top');
+    const hpName = make('span', null, 'Milo Kade');
+    this.el.hpValue = make('b', null, '100');
+    healthTop.appendChild(hpName);
+    healthTop.appendChild(this.el.hpValue);
+    const bar = make('div', 'mb-health-bar');
+    this.el.hpFill = make('div', 'mb-health-fill');
+    bar.appendChild(this.el.hpFill);
+    this.el.ammo = make('div', 'mb-health-foot', 'Pistol \u00b7 12 rounds');
+    health.appendChild(healthTop);
+    health.appendChild(bar);
+    health.appendChild(this.el.ammo);
+    this.root.appendChild(health);
+
+    const speed = make('div', 'mb-speed');
+    this.el.speedNum = make('span', 'mb-speed-num', '0');
+    this.el.vehicle = make('div', 'mb-vehicle', 'On foot');
+    const speedRow = make('div');
+    speedRow.appendChild(this.el.speedNum);
+    speedRow.appendChild(make('span', 'mb-speed-unit', 'km/h'));
+    speed.appendChild(speedRow);
+    speed.appendChild(this.el.vehicle);
+    this.el.speed = speed;
     this.root.appendChild(speed);
-    this.speedEl = speed;
-    this.speedNum = speedNum;
 
-    const toasts = document.createElement('div');
-    toasts.className = 'mb-toasts';
-    this.root.appendChild(toasts);
-    this.toastBox = toasts;
+    this.root.appendChild(make(
+      'div',
+      'mb-controls',
+      'WASD move \u00b7 Shift sprint \u00b7 E car \u00b7 F punch \u00b7 Click/G fire \u00b7 R reload \u00b7 P pause \u00b7 M mute \u00b7 H jobs',
+    ));
 
-    const jobs = document.createElement('div');
-    jobs.className = 'mb-jobs';
-    const jobsHead = document.createElement('div');
-    jobsHead.className = 'mb-jobs-head';
-    const jobsTitle = document.createElement('div');
-    jobsTitle.className = 'mb-jobs-title';
-    jobsTitle.textContent = 'STORY JOBS';
-    const jobsCount = document.createElement('div');
-    jobsCount.className = 'mb-jobs-count';
-    jobsCount.textContent = '0/0';
-    jobsHead.appendChild(jobsTitle);
-    jobsHead.appendChild(jobsCount);
-    const jobsList = document.createElement('div');
-    jobsList.className = 'mb-jobs-list';
-    const jobsNote = document.createElement('div');
-    jobsNote.className = 'mb-jobs-note';
-    jobsNote.textContent = 'ALL STORY JOBS COMPLETE';
-    jobsNote.style.display = 'none';
-    jobs.appendChild(jobsHead);
-    jobs.appendChild(jobsList);
-    jobs.appendChild(jobsNote);
-    this.root.appendChild(jobs);
-    this.jobsEl = jobs;
-    this.jobsList = jobsList;
-    this.jobsCountEl = jobsCount;
-    this.jobsNote = jobsNote;
+    this.toastLayer = make('div', 'mb-toasts');
+    this.root.appendChild(this.toastLayer);
 
-    const pause = document.createElement('div');
-    pause.className = 'mb-pause';
-    const pauseInner = document.createElement('div');
-    pauseInner.className = 'mb-pause-inner';
-    const pauseTitle = document.createElement('div');
-    pauseTitle.className = 'mb-pause-title';
-    pauseTitle.textContent = 'PAUSED';
-    const pauseSub = document.createElement('div');
-    pauseSub.className = 'mb-pause-sub';
-    pauseSub.textContent = 'Press P to resume';
-    const resume = document.createElement('button');
-    resume.type = 'button';
-    resume.className = 'mb-resume-btn';
-    resume.textContent = 'RESUME';
-    resume.addEventListener('click', (event) => {
-      if (event && typeof event.preventDefault === 'function') event.preventDefault();
-      this.onPauseToggle();
-    });
-    const pauseStats = document.createElement('div');
-    pauseStats.className = 'mb-pause-stats';
-    pauseStats.textContent = 'CASH $0  \u00b7  TURF 0/6';
-    pauseInner.appendChild(pauseTitle);
-    pauseInner.appendChild(pauseSub);
-    pauseInner.appendChild(resume);
-    pauseInner.appendChild(pauseStats);
-    pause.appendChild(pauseInner);
-    this.root.appendChild(pause);
-    this.pauseEl = pause;
-    this.pauseStats = pauseStats;
+    if (this.objectiveEl) {
+      this.objectiveEl.replaceChildren();
+      this.objTitle = make('div', 'mb-obj-title');
+      this.objText = make('div', 'mb-obj-text');
+      this.objBar = make('div', 'mb-obj-bar');
+      this.objFill = make('div', 'mb-obj-fill');
+      this.objBar.appendChild(this.objFill);
+      this.objProgress = make('div', 'mb-obj-prog');
+      this.objectiveEl.appendChild(this.objTitle);
+      this.objectiveEl.appendChild(this.objText);
+      this.objectiveEl.appendChild(this.objBar);
+      this.objectiveEl.appendChild(this.objProgress);
+    }
   }
 
-  _buildMinimap() {
-    let canvas = document.getElementById('minimap');
-    if (!canvas || canvas.tagName !== 'CANVAS') {
-      if (canvas && canvas.appendChild) {
-        const nested = document.createElement('canvas');
-        nested.id = 'minimap-canvas';
-        canvas.appendChild(nested);
-        canvas = nested;
-      } else {
-        canvas = document.createElement('canvas');
-        canvas.id = 'minimap';
-        document.body.appendChild(canvas);
-      }
-    }
-    canvas.classList.add('mb-map');
-    canvas.style.width = MAP_SIZE + 'px';
-    canvas.style.height = MAP_SIZE + 'px';
+  panelShell(name, cls) {
+    const wrap = make('div', 'mb-panel ' + (cls || ''));
+    wrap.dataset.panel = name;
+    this.panels[name] = wrap;
+    this.startOverlay.appendChild(wrap);
+    return wrap;
+  }
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(MAP_SIZE * dpr);
-    canvas.height = Math.round(MAP_SIZE * dpr);
-
-    this.mmCanvas = canvas;
-    this.mmCtx = canvas.getContext('2d');
-    this.mmSize = MAP_SIZE;
-    this.mmDpr = dpr;
-
-    const west = num(WORLD.minX, -208) - 26;
-    this.mmBounds = {
-      x0: west,
-      x1: num(WORLD.maxX, 226),
-      z0: num(WORLD.minZ, -226),
-      z1: num(WORLD.maxZ, 226),
+  button(label, cls, onClick) {
+    const btn = make('button', 'mb-btn ' + (cls || ''), label);
+    btn.type = 'button';
+    const swallow = (e) => {
+      e.stopPropagation();
     };
-    this._minimapReady = !!this.mmCtx;
+    btn.addEventListener('pointerdown', swallow);
+    btn.addEventListener('pointerup', swallow);
+    btn.addEventListener('mousedown', swallow);
+    btn.addEventListener('mouseup', swallow);
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof onClick === 'function') onClick();
+    });
+    return btn;
   }
 
-  // ---------------------------------------------------------------- start / pause
-  _setStartVisible(visible) {
-    if (!this.startOverlay) return;
-    if (visible) {
-      this.startOverlay.classList.remove('mb-splash-hidden', 'hidden');
-      this.startOverlay.style.display = 'flex';
-    } else {
-      this.startOverlay.classList.add('mb-splash-hidden');
-      this.startOverlay.style.display = 'none';
+  buildOverlay() {
+    if (typeof document === 'undefined') return;
+    const ov = this.startOverlay;
+    ov.replaceChildren();
+    this.panels = {};
+    this.buildTitlePanel();
+    this.buildPausePanel();
+    this.buildJobsPanel();
+
+    const block = (e) => {
+      e.stopPropagation();
+    };
+    for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'wheel']) {
+      ov.addEventListener(type, block);
     }
   }
 
-  _begin() {
-    if (this.started) return;
+  buildTitlePanel() {
+    const p = this.panelShell('title', 'mb-titlecard');
+
+    p.appendChild(make('div', 'mb-kicker', 'Driver for hire \u00b7 Marisol Bay'));
+    p.appendChild(make('div', 'mb-title', 'MARISOL BAY'));
+    p.appendChild(make('div', 'mb-sub', 'Six districts. One city. Take it.'));
+    p.appendChild(make('div', 'mb-lede',
+      'Milo Kade drives rich tourists by day and moves other people\u2019s cargo by night. ' +
+      'The bay is carved into six districts and every one of them pays somebody. ' +
+      'Take the turf, mind the heat, keep the car running.'));
+
+    const keys = make('div', 'mb-keys');
+    const rows = [
+      ['WASD / Shift', 'Walk, sprint'],
+      ['E', 'Enter or exit a car'],
+      ['F / Click / G', 'Punch, fire'],
+      ['R', 'Reload'],
+      ['J', 'Start the next job'],
+      ['H', 'Job list'],
+      ['P / Esc', 'Pause'],
+      ['M', 'Mute audio'],
+    ];
+    for (let i = 0; i < rows.length; i++) {
+      keys.appendChild(make('div', 'mb-key', rows[i][0]));
+      keys.appendChild(make('div', null, rows[i][1]));
+    }
+    p.appendChild(keys);
+
+    this.el.titleStats = make('div', 'mb-stats');
+    p.appendChild(this.el.titleStats);
+
+    const actions = make('div', 'mb-actions');
+    this.el.continueBtn = this.button('Continue', 'primary', () => this.beginGame());
+    this.el.newBtn = this.button('New Game', '', () => this.newGame());
+    this.el.jobsFromTitle = this.button('Jobs', '', () => this.toggleMissions());
+    actions.appendChild(this.el.continueBtn);
+    actions.appendChild(this.el.newBtn);
+    actions.appendChild(this.el.jobsFromTitle);
+    p.appendChild(actions);
+
+    p.appendChild(make('div', 'mb-note',
+      'An original game made for the make.fun bounty \u2014 own city, own characters, own code.'));
+  }
+
+  buildPausePanel() {
+    const p = this.panelShell('pause', 'mb-card');
+
+    p.appendChild(make('div', 'mb-card-head', 'Paused'));
+    p.appendChild(make('div', 'mb-card-title', 'Marisol Bay'));
+    p.appendChild(make('div', 'mb-card-sub', 'The bay waits. Nothing moves while you are here.'));
+
+    this.el.pauseStats = make('div', 'mb-stats');
+    p.appendChild(this.el.pauseStats);
+
+    const actions = make('div', 'mb-actions');
+    actions.appendChild(this.button('Resume', 'primary', () => this.resume()));
+    actions.appendChild(this.button('Restart Job', '', () => this.restartJob()));
+    actions.appendChild(this.button('Save', '', () => this.saveNow()));
+    actions.appendChild(this.button('Mute / Unmute', '', () => pressKey('KeyM', 'm')));
+    actions.appendChild(this.button('Toggle Map', '', () => this.setMinimap(!this.mapVisible)));
+    actions.appendChild(this.button('Quit to Title', '', () => this.quitToTitle()));
+    p.appendChild(actions);
+  }
+
+  buildJobsPanel() {
+    const p = this.panelShell('jobs', 'mb-card');
+    p.appendChild(make('div', 'mb-card-head', 'Work board'));
+    p.appendChild(make('div', 'mb-card-title', 'Jobs'));
+    p.appendChild(make('div', 'mb-card-sub', 'Story jobs unlock as districts fall under your flag.'));
+    this.el.jobList = make('div', 'mb-jobs');
+    p.appendChild(this.el.jobList);
+    const actions = make('div', 'mb-actions');
+    actions.appendChild(this.button('Close', 'primary', () => this.openPanel(this.jobsReturn || null)));
+    actions.appendChild(this.button('Start Next', '', () => this.restartJob()));
+    p.appendChild(actions);
+  }
+
+  openPanel(name) {
+    if (!this.startOverlay) return;
+    this.panel = name || null;
+    const keys = Object.keys(this.panels);
+    for (let i = 0; i < keys.length; i++) {
+      const node = this.panels[keys[i]];
+      const on = keys[i] === name;
+      node.style.display = on ? 'block' : 'none';
+    }
+    if (name) {
+      this.startOverlay.style.display = 'flex';
+      this.startOverlay.classList.remove('hidden');
+      if (name === 'title') this.refreshTitle();
+      if (name === 'pause') this.refreshPause();
+      if (name === 'jobs') this.refreshJobs();
+    } else {
+      this.startOverlay.style.display = 'none';
+      this.startOverlay.classList.add('hidden');
+    }
+    this.syncVisibility();
+  }
+
+  closePanel() {
+    this.openPanel(null);
+  }
+
+  refreshTitle() {
+    if (!this.el.titleStats) return;
+    const game = typeof window !== 'undefined' ? window.MARISOL : null;
+    const saved = hasSave();
+    if (this.el.continueBtn) this.el.continueBtn.style.display = saved ? '' : 'none';
+
+    let held = this.turfCount;
+    let bank = this.snapshot ? (numOf(this.snapshot.cash) || 0) : 0;
+    if (game && game.missions) {
+      if (typeof game.missions.turfCount === 'function') {
+        const n = game.missions.turfCount();
+        if (typeof n === 'number' && isFinite(n)) held = clamp(Math.round(n), 0, TUNE.districtCount);
+      }
+      if (typeof game.cash === 'number' && isFinite(game.cash)) bank = game.cash;
+    }
+    this.turfCount = held;
+
+    const rows = [
+      'Districts held', held + ' / ' + TUNE.districtCount,
+      'Bank', money(bank),
+      'Save slot', saved ? 'continue available' : 'empty',
+    ];
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < rows.length; i++) frag.appendChild(make('span', null, rows[i]));
+    this.el.titleStats.replaceChildren(frag);
+  }
+
+  refreshPause() {
+    if (!this.el.pauseStats) return;
+    const snap = this.snapshot || {};
+    const rows = [
+      'District', snap.district || '\u2014',
+      'Turf', this.turfCount + ' / ' + TUNE.districtCount,
+      'Bank', money(snap.cash || 0),
+      'Heat', this.wanted + ' / 5',
+    ];
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < rows.length; i++) frag.appendChild(make('span', null, rows[i]));
+    this.el.pauseStats.replaceChildren(frag);
+  }
+
+  beginGame() {
     this.started = true;
     this.playing = true;
     this.paused = false;
-    this._setStartVisible(false);
-    this._setPauseVisible(false);
+    this.closePanel();
+    if (this.root) this.root.style.opacity = '1';
+    if (typeof this.callbacks.onStart === 'function') this.callbacks.onStart();
+  }
+
+  newGame() {
+    let hadSave = false;
     try {
-      this.onStart();
+      if (typeof localStorage !== 'undefined') {
+        hadSave = !!localStorage.getItem(SAVE_KEY);
+        localStorage.removeItem(SAVE_KEY);
+      }
     } catch (err) {
-      if (typeof console !== 'undefined' && console.error) console.error('hud: onStart failed', err);
+      void err;
+    }
+    if (hadSave && typeof location !== 'undefined' && typeof location.reload === 'function') {
+      location.reload();
+      return;
+    }
+    this.startFresh();
+  }
+
+  startFresh() {
+    this.beginGame();
+    this.toast('NEW GAME \u00b7 WELCOME TO MARISOL BAY', 3.4);
+    this.toast('PRESS J FOR YOUR FIRST JOB', 3.6);
+  }
+
+  resume() {
+    if (this.paused) {
+      if (typeof this.callbacks.onPauseToggle === 'function') this.callbacks.onPauseToggle();
+      else this.setPaused(false);
+    } else {
+      this.closePanel();
     }
   }
 
-  _setPauseVisible(visible) {
-    if (!this.pauseEl) return;
-    if (visible && this.started) this.pauseEl.classList.add('mb-open');
-    else this.pauseEl.classList.remove('mb-open');
+  restartJob() {
+    this.resume();
+    if (!this.started) return;
+    const game = typeof window !== 'undefined' ? window.MARISOL : null;
+    const missions = game && game.missions;
+    if (missions && typeof missions === 'object') {
+      if (typeof missions.restart === 'function') {
+        try {
+          missions.restart();
+          this.toast('JOB RESTARTED', 2);
+          return;
+        } catch (err) {
+          void err;
+        }
+      }
+      const current = missions.current || missions.activeMission || null;
+      if (current && typeof missions.startMission === 'function' && typeof current.id === 'string') {
+        try {
+          if (missions.isMissionActive) missions.startMission(current.id);
+          else pressKey('KeyJ', 'j');
+          return;
+        } catch (err) {
+          void err;
+        }
+      }
+    }
+    pressKey('KeyJ', 'j');
   }
 
-  setPaused(paused) {
-    const next = !!paused && this.started;
-    this.paused = next;
-    this.playing = this.started && !next;
-    this._setPauseVisible(next);
+  saveNow() {
+    const game = typeof window !== 'undefined' ? window.MARISOL : null;
+    try {
+      if (game && game.save && game.missions && typeof game.missions.serialize === 'function') {
+        const data = game.missions.serialize();
+        data.cash = game.cash;
+        data.settings = {
+          volume: game.audio ? game.audio.volume : 1,
+          muted: game.audio ? game.audio.muted : false,
+          minimap: this.mapVisible,
+        };
+        game.save.save(data);
+        this.toast('GAME SAVED', 2);
+      } else {
+        this.toast('SAVE UNAVAILABLE', 2);
+      }
+    } catch (err) {
+      this.toast('SAVE FAILED', 2);
+    }
   }
 
-  setMinimap(visible) {
-    this.mapVisible = visible !== false;
-    this._applyMapVisibility();
+  quitToTitle() {
+    if (this.paused && typeof this.callbacks.onPauseToggle === 'function') {
+      this.callbacks.onPauseToggle();
+    }
+    this.paused = false;
+    this.started = false;
+    this.playing = false;
+    this.clearToasts();
+    this.openPanel('title');
+    this.refreshTitle();
   }
 
-  _applyMapVisibility() {
-    if (!this.mmCanvas) return;
-    if (this.mapVisible) this.mmCanvas.classList.remove('mb-map-off');
-    else this.mmCanvas.classList.add('mb-map-off');
-    this.mmCanvas.style.visibility = this.mapVisible ? 'visible' : 'hidden';
+  setPaused(v) {
+    this.paused = !!v;
+    if (!this.started) return;
+    if (this.paused) {
+      this.refreshPause();
+      this.openPanel('pause');
+    } else if (this.panel === 'pause' || this.panel === 'jobs') {
+      this.closePanel();
+    }
+  }
+
+  syncVisibility() {
+    const on = !!this.started;
+    if (this.root) this.root.style.visibility = on ? 'visible' : 'hidden';
+    if (this.objectiveEl) this.objectiveEl.style.visibility = on ? 'visible' : 'hidden';
+    if (this.minimap) this.minimap.style.display = (on && this.mapVisible) ? 'block' : 'none';
+    if (this.incomeEl) this.incomeEl.style.visibility = on ? 'visible' : 'hidden';
+    if (this.brandEl) {
+      const overlayUp = !!this.startOverlay && this.startOverlay.style.display !== 'none';
+      const hide = this.panel === 'title' && overlayUp;
+      this.brandEl.style.display = hide ? 'none' : 'block';
+    }
+  }
+
+  setMinimap(on) {
+    const value = !!on;
+    const changed = value !== this.mapVisible;
+    this.mapVisible = value;
+    if (this.minimap) this.minimap.style.display = this.mapVisible ? 'block' : 'none';
+    if (changed && this.started) this.toast(this.mapVisible ? 'MAP ON' : 'MAP OFF', 1.4);
   }
 
   toggleMissions() {
-    this._jobsOpen = !this._jobsOpen;
-    this._applyJobsVisibility();
-    if (this._jobsOpen) this._jobsKey = '';
+    if (this.panel === 'jobs') {
+      this.openPanel(this.jobsReturn || null);
+      return;
+    }
+    this.jobsReturn = this.panel || (this.started ? null : 'title');
+    this.refreshJobs();
+    this.openPanel('jobs');
   }
 
-  _applyJobsVisibility() {
-    if (!this.jobsEl) return;
-    if (this._jobsOpen) this.jobsEl.classList.add('mb-open');
-    else this.jobsEl.classList.remove('mb-open');
-    if (this.jobsBtn) {
-      if (this._jobsOpen) this.jobsBtn.classList.add('mb-open');
-      else this.jobsBtn.classList.remove('mb-open');
+  missionsList() {
+    const snap = this.snapshot;
+    if (snap && snap.missions) return snap.missions;
+    const game = typeof window !== 'undefined' ? window.MARISOL : null;
+    if (game && game.missions && typeof game.missions.getMissions === 'function') {
+      return game.missions.getMissions();
     }
+    return null;
+  }
+
+  refreshJobs() {
+    if (!this.el.jobList) return;
+    const list = this.missionsList();
+    const rows = [];
+    const statusOf = (m) => {
+      if (!m || typeof m !== 'object') return { status: 'Open', done: false };
+      if (m.completed === true || m.done === true) return { status: 'Done', done: true };
+      const raw = textOf(m.status, m.state);
+      if (raw) return { status: raw, done: raw.toLowerCase() === 'done' || raw.toLowerCase() === 'complete' };
+      if (m.active === true) return { status: 'Active', done: false };
+      if (m.locked === true || m.unlocked === false) return { status: 'Locked', done: false };
+      return { status: 'Open', done: false };
+    };
+    if (Array.isArray(list)) {
+      for (let i = 0; i < list.length; i++) {
+        const m = list[i] || {};
+        const title = textOf(m.title, m.name, m.id) || 'Job';
+        const info = statusOf(m);
+        rows.push({ title, status: info.status, done: info.done });
+      }
+    } else if (list && typeof list === 'object') {
+      const keys = Object.keys(list);
+      for (let i = 0; i < keys.length; i++) {
+        const m = list[keys[i]] || {};
+        const title = textOf(m.title, m.name, keys[i]);
+        const info = statusOf(m);
+        rows.push({ title, status: info.status, done: info.done });
+      }
+    }
+    if (!rows.length) {
+      rows.push({ title: 'No jobs listed', status: 'Free roam', done: false });
+    }
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < rows.length; i++) {
+      const row = make('div', 'mb-job' + (rows[i].done ? ' done' : ''));
+      row.appendChild(make('b', null, rows[i].title));
+      row.appendChild(make('span', null, rows[i].status));
+      frag.appendChild(row);
+    }
+    this.el.jobList.replaceChildren(frag);
   }
 
   // ---------------------------------------------------------------- toasts
   toast(text, seconds) {
-    if (!this.toastBox) return;
-    const message = str(text, '');
+    if (!this.toastLayer || typeof document === 'undefined') return;
+    const message = String(text === undefined || text === null ? '' : text).trim();
     if (!message) return;
-    const life = Math.max(0.4, num(seconds, 2.5));
 
-    while (this._toasts.length >= TOAST_LIMIT) {
-      const oldest = this._toasts.shift();
-      this._killToast(oldest);
+    const life = typeof seconds === 'number' && seconds > 0 ? seconds : TUNE.toastLife;
+    const node = make('div', 'mb-toast' + (toastKind(message) ? ' ' + toastKind(message) : ''), message);
+    this.toastLayer.appendChild(node);
+    const item = { node, life, max: life };
+    this.toasts.push(item);
+    while (this.toasts.length > TUNE.toastMax) {
+      const old = this.toasts.shift();
+      if (old.node.parentNode) old.node.parentNode.removeChild(old.node);
     }
-
-    const node = document.createElement('div');
-    node.className = 'mb-toast';
-    node.textContent = message;
-    this.toastBox.appendChild(node);
-
-    const entry = { node: node, timer: null, out: null };
-    entry.timer = setTimeout(() => {
-      this._dismissToast(entry);
-    }, life * 1000);
-    this._toasts.push(entry);
+    this.noticeEvent(message);
   }
 
-  _dismissToast(entry) {
-    if (!entry || !entry.node || entry.out) return;
-    entry.out = setTimeout(() => this._killToast(entry), 250);
-    entry.node.classList.add('mb-toast-out');
-    const index = this._toasts.indexOf(entry);
-    if (index >= 0) this._toasts.splice(index, 1);
-  }
-
-  _killToast(entry) {
-    if (!entry) return;
-    if (entry.timer) clearTimeout(entry.timer);
-    if (entry.out) clearTimeout(entry.out);
-    if (entry.node && entry.node.parentNode) entry.node.parentNode.removeChild(entry.node);
-    const index = this._toasts.indexOf(entry);
-    if (index >= 0) this._toasts.splice(index, 1);
-  }
-
-  // ---------------------------------------------------------------- main update
-  update(dt, snapshot) {
-    const s = snapshot && typeof snapshot === 'object' ? snapshot : {};
-    this.time += Math.max(0, num(dt, 0));
-
-    if (document.body) {
-      const has = document.body.classList.contains('mb-started');
-      if (this.started && !has) document.body.classList.add('mb-started');
-      else if (!this.started && has) document.body.classList.remove('mb-started');
+  clearToasts() {
+    for (let i = 0; i < this.toasts.length; i++) {
+      const t = this.toasts[i];
+      if (t.node.parentNode) t.node.parentNode.removeChild(t.node);
     }
+    this.toasts.length = 0;
+  }
 
-    const wanted = clamp(Math.round(num(s.wanted, 0)), 0, 5);
-    if (this.stars) {
-      for (let i = 0; i < this.stars.length; i++) {
-        if (i < wanted) this.stars[i].classList.add('mb-on');
-        else this.stars[i].classList.remove('mb-on');
+  updateToasts(dt) {
+    for (let i = this.toasts.length - 1; i >= 0; i--) {
+      const t = this.toasts[i];
+      t.life -= dt;
+      if (t.life <= 0) {
+        if (t.node.parentNode) t.node.parentNode.removeChild(t.node);
+        this.toasts.splice(i, 1);
+      } else if (t.life < 0.4) {
+        t.node.style.opacity = String(Math.max(0, t.life / 0.4));
       }
     }
-
-    const cash = num(s.cash, 0);
-    if (this.cashEl) this.cashEl.textContent = money(cash);
-
-    const health = clamp(num(s.health, 100), 0, 100);
-    if (this.healthFill) {
-      this.healthFill.style.width = health.toFixed(1) + '%';
-      this.healthFill.style.backgroundColor = healthColor(health);
-    }
-    if (this.healthNum) this.healthNum.textContent = String(Math.round(health));
-    if (this.healthTrack) this.healthTrack.setAttribute('aria-label', 'Health ' + Math.round(health));
-
-    if (this.ammoVal) {
-      const ammo = num(s.ammo, 0);
-      this.ammoVal.textContent = String(Math.max(0, Math.round(ammo)));
-    }
-
-    if (this.districtEl) {
-      const name = str(s.district, '').trim();
-      this.districtEl.textContent = name ? name.toUpperCase() : 'MARISOL BAY';
-    }
-
-    const objective = str(s.objective, '').trim();
-    if (this.objectiveText) {
-      this.objectiveText.textContent = objective || 'Explore Marisol Bay';
-      if (objective) this.objectiveText.classList.remove('mb-empty');
-      else this.objectiveText.classList.add('mb-empty');
-    }
-
-    const turf = s.turf && typeof s.turf === 'object' ? s.turf : {};
-    const takenRaw = num(turf.taken, num(s.districtsTaken, 0));
-    const taken = clamp(Math.round(takenRaw), 0, this.turfCount);
-    const total = clamp(Math.round(num(turf.total, this.turfCount)), 1, this.turfCount);
-    if (this.turfLabel) this.turfLabel.textContent = 'TURF ' + taken + '/' + total;
-    if (this.turfSegments) {
-      for (let i = 0; i < this.turfSegments.length; i++) {
-        const seg = this.turfSegments[i];
-        const filled = i < taken;
-        if (filled) {
-          seg.classList.add('mb-filled');
-          seg.style.opacity = '1';
-        } else {
-          seg.classList.remove('mb-filled');
-          seg.style.opacity = '0.32';
-        }
-      }
-    }
-
-    const speedBox = this.speedEl;
-    if (speedBox) {
-      if (s.driving) {
-        speedBox.classList.add('mb-show');
-        if (this.speedNum) {
-          const kmh = Math.round(Math.abs(num(s.speed, 0)) * 3.6);
-          this.speedNum.textContent = String(kmh);
-        }
-      } else {
-        speedBox.classList.remove('mb-show');
-      }
-    }
-
-    if (this.pauseEl && this.paused) {
-      const text = money(cash) + '  \u00b7  TURF ' + taken + '/' + total;
-      if (this.pauseStats) this.pauseStats.textContent = text;
-    }
-
-    if (this._minimapReady && this.mapVisible) this._drawMinimap(s);
-
-    if (this._jobsOpen) this._refreshJobs(s.missions);
   }
 
-  _refreshJobs(list) {
-    if (!this.jobsList) return;
-    const items = Array.isArray(list) ? list : [];
-    let doneCount = 0;
-    let signature = String(items.length);
-    for (let i = 0; i < items.length; i++) {
-      const m = items[i] || {};
-      if (isDone(m.status)) doneCount++;
-      signature += '|' + str(m.id, '') + ':' + str(m.status, '') + ':' + str(m.title, '') + ':' +
-        str(m.district, '') + ':' + num(m.reward, 0);
-    }
-    if (this.jobsCountEl) this.jobsCountEl.textContent = doneCount + '/' + items.length;
+  // ------------------------------------------------------------ event cards
+  noticeEvent(message) {
+    const text = message.toUpperCase();
+    const reward = /\+\$([0-9,]+)/.exec(message);
+    const rewardValue = reward ? Number(reward[1].replace(/,/g, '')) : 0;
+    const bankNow = () => {
+      if (this.prev.cash !== null) return this.prev.cash;
+      if (this.snapshot) return numOf(this.snapshot.cash) || 0;
+      return 0;
+    };
 
-    const allDone = items.length > 0 && doneCount === items.length;
-    if (this.jobsNote) this.jobsNote.style.display = allDone ? 'block' : 'none';
-    if (signature === this._jobsKey) return;
-    this._jobsKey = signature;
-
-    this.jobsList.textContent = '';
-    if (!items.length) {
-      const empty = document.createElement('div');
-      empty.className = 'mb-jobs-empty';
-      empty.textContent = 'NO STORY JOBS AVAILABLE';
-      this.jobsList.appendChild(empty);
-      return;
-    }
-
-    for (let i = 0; i < items.length; i++) {
-      const m = items[i] || {};
-      const status = str(m.status, '');
-      const active = isActive(status);
-      const done = isDone(status);
-
-      const row = document.createElement('div');
-      row.className = 'mb-job' + (active ? ' mb-job-active' : '') + (done ? ' mb-job-done' : '');
-      if (str(m.id, '')) row.setAttribute('data-job', str(m.id, ''));
-
-      const top = document.createElement('div');
-      top.className = 'mb-job-top';
-      const name = document.createElement('span');
-      name.className = 'mb-job-name';
-      name.textContent = str(m.title, 'Untitled job');
-      const reward = document.createElement('span');
-      reward.className = 'mb-job-reward';
-      const amount = num(m.reward, 0);
-      reward.textContent = amount > 0 ? '+$' + Math.round(amount).toLocaleString('en-US') : '';
-
-      top.appendChild(name);
-      top.appendChild(reward);
-
-      const meta = document.createElement('div');
-      meta.className = 'mb-job-meta';
-      const district = document.createElement('span');
-      district.textContent = str(m.district, '') || 'MARISOL BAY';
-      const statusEl = document.createElement('span');
-      statusEl.className = 'mb-job-status' +
-        (done ? ' mb-st-done' : '') + (active ? ' mb-st-active' : '');
-      statusEl.textContent = statusLabel(status);
-
-      meta.appendChild(district);
-      meta.appendChild(statusEl);
-
-      row.appendChild(top);
-      row.appendChild(meta);
-      this.jobsList.appendChild(row);
+    if (text.indexOf('MISSION COMPLETE') >= 0) {
+      this.showCard('complete', {
+        head: 'Job closed',
+        title: 'Mission Complete',
+        sub: 'The bay noticed. Heat is climbing.',
+        rows: [
+          ['Payout', '+' + money(rewardValue)],
+          ['Districts held', this.turfCount + ' / ' + TUNE.districtCount],
+          ['Bank', money(bankNow() + rewardValue)],
+        ],
+      });
+    } else if (text.indexOf('MISSION FAILED') >= 0) {
+      const reason = message.split('\u2014')[1] || message.replace(/MISSION FAILED/i, '');
+      this.showCard('failed', {
+        head: 'Job blown',
+        title: 'Mission Failed',
+        sub: (reason || '').trim() || 'It fell apart. Press J to try again.',
+        rows: [
+          ['Retry', 'Press J'],
+          ['Bank', money(bankNow())],
+        ],
+      });
+    } else if (text.indexOf('BUSTED') >= 0 || text.indexOf('WASTED') >= 0) {
+      this.showCard('failed', {
+        head: 'Marisol PD',
+        title: text.indexOf('BUSTED') >= 0 ? 'Busted' : 'Wasted',
+        sub: 'The bay spits you back out on the promenade.',
+        rows: [['Bank', money(bankNow())]],
+      });
+    } else if (/TAKEN OVER$/.test(text)) {
+      const name = message.replace(/\s*TAKEN OVER$/i, '');
+      this.showCard('turf', {
+        head: 'Turf secured',
+        title: name || 'District',
+        sub: 'Income starts today. Heat starts now.',
+        rows: [
+          ['Districts held', this.turfCount + ' / ' + TUNE.districtCount],
+          ['Income', money(this.turfCount * INCOME_PER_TICK) + ' / ' + INCOME_TICK + 's'],
+        ],
+      });
     }
   }
 
-  // ---------------------------------------------------------------- minimap
-  _roundRect(ctx, x, y, w, h, r) {
-    const radius = Math.max(0, Math.min(r, w / 2, h / 2));
-    ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + w - radius, y);
-    ctx.arcTo(x + w, y, x + w, y + radius, radius);
-    ctx.lineTo(x + w, y + h - radius);
-    ctx.arcTo(x + w, y + h, x + w - radius, y + h, radius);
-    ctx.lineTo(x + radius, y + h);
-    ctx.arcTo(x, y + h, x, y + h - radius, radius);
-    ctx.lineTo(x, y + radius);
-    ctx.arcTo(x, y, x + radius, y, radius);
-    ctx.closePath();
+  showCard(kind, config) {
+    if (!this.root || typeof document === 'undefined') return;
+    this.hideCard();
+    const bad = kind === 'failed';
+    const node = make('div', 'mb-panel mb-card' + (bad ? ' bad' : ''));
+    node.style.position = 'absolute';
+    node.style.left = '50%';
+    node.style.top = '50%';
+    node.style.transform = 'translate(-50%, -50%)';
+    node.style.pointerEvents = 'none';
+    node.style.width = 'min(420px, 78vw)';
+    node.style.padding = '20px 24px';
+    node.style.opacity = '0.97';
+
+    node.appendChild(make('div', 'mb-card-head', config.head || ''));
+    node.appendChild(make('div', 'mb-card-title', config.title || ''));
+    if (config.sub) node.appendChild(make('div', 'mb-card-sub', config.sub));
+
+    const rows = make('div', 'mb-rows');
+    const list = Array.isArray(config.rows) ? config.rows : [];
+    for (let i = 0; i < list.length; i++) {
+      rows.appendChild(make('div', 'k', list[i][0]));
+      rows.appendChild(make('div', 'v', list[i][1]));
+    }
+    node.appendChild(rows);
+    node.appendChild(make('div', 'mb-note', 'Press J for the next job \u00b7 P to pause'));
+
+    this.root.appendChild(node);
+    this.card = node;
+    this.cardTimer = TUNE.cardLife;
   }
 
-  _drawMinimap(s) {
-    const ctx = this.mmCtx;
+  hideCard() {
+    if (this.card && this.card.parentNode) this.card.parentNode.removeChild(this.card);
+    this.card = null;
+    this.cardTimer = 0;
+  }
+
+  updateCard(dt) {
+    if (!this.card) return;
+    this.cardTimer -= dt;
+    if (this.cardTimer <= 0) {
+      this.hideCard();
+    } else if (this.cardTimer < 0.5) {
+      this.card.style.opacity = String(Math.max(0, this.cardTimer / 0.5));
+    }
+  }
+
+  // ------------------------------------------------------------------ minimap
+  initMap() {
+    this.resizeMap();
+    this.buildMapBase();
+    this.mapAcc = 1;
+  }
+
+  resizeMap() {
+    if (!this.minimap) return;
+    const size = TUNE.mapSize;
+    if (this.minimap.width !== size) this.minimap.width = size;
+    if (this.minimap.height !== size) this.minimap.height = size;
+    this.mapDpr = 1;
+  }
+
+  mapX(x) {
+    const t = (x - BOUNDS.x0) / (BOUNDS.x1 - BOUNDS.x0);
+    return clamp(t, 0, 1) * TUNE.mapSize;
+  }
+
+  mapY(z) {
+    const t = (z - BOUNDS.z0) / (BOUNDS.z1 - BOUNDS.z0);
+    return clamp(t, 0, 1) * TUNE.mapSize;
+  }
+
+  buildMapBase() {
+    if (typeof document === 'undefined') return;
+    const S = TUNE.mapSize;
+    const canvas = document.createElement('canvas');
+    canvas.width = S;
+    canvas.height = S;
+    const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const size = this.mmSize;
-    const dpr = this.mmDpr;
+    this.mapBase = canvas;
 
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, size, size);
-    ctx.save();
-    this._roundRect(ctx, 0.5, 0.5, size - 1, size - 1, 11);
-    ctx.clip();
+    const mx = (x) => this.mapX(x);
+    const my = (z) => this.mapY(z);
+    const rect = (x0, z0, x1, z1) => {
+      const ax = mx(Math.min(x0, x1));
+      const az = my(Math.min(z0, z1));
+      const bx = mx(Math.max(x0, x1));
+      const bz = my(Math.max(z0, z1));
+      return [ax, az, Math.max(0.6, bx - ax), Math.max(0.6, bz - az)];
+    };
 
-    const bg = ctx.createLinearGradient(0, 0, size, size);
-    bg.addColorStop(0, '#12212c');
-    bg.addColorStop(1, '#0a1319');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#123948';
+    ctx.fillRect(0, 0, S, S);
 
-    const b = this.mmBounds;
-    const spanX = b.x1 - b.x0;
-    const spanZ = b.z1 - b.z0;
-    const scale = Math.min((size - MAP_PAD * 2) / spanX, (size - MAP_PAD * 2) / spanZ);
-    const originX = (size - spanX * scale) / 2 - b.x0 * scale;
-    const originY = (size - spanZ * scale) / 2 - b.z0 * scale;
-    const X = (x) => originX + x * scale;
-    const Y = (z) => originY + z * scale;
+    const waterGrad = ctx.createLinearGradient(0, 0, mx(WORLD.landEdgeX), 0);
+    waterGrad.addColorStop(0, '#1d6178');
+    waterGrad.addColorStop(1, '#2a7d92');
+    ctx.fillStyle = waterGrad;
+    ctx.fillRect(0, 0, Math.max(1, mx(WORLD.landEdgeX)), S);
 
-    const landEdge = num(WORLD.landEdgeX, -212);
-    const sandLeft = num(WORLD.sandCenterX, -198) - num(WORLD.sandWidth, 28) / 2;
-    const sandRight = sandLeft + num(WORLD.sandWidth, 28);
+    const landR = rect(WORLD.landEdgeX, BOUNDS.z0, WORLD.maxX, BOUNDS.z1);
+    ctx.fillStyle = '#4a5a4c';
+    ctx.fillRect(landR[0], landR[1], landR[2], landR[3]);
 
-    // ocean on the west edge
-    const sea = ctx.createLinearGradient(X(b.x0), 0, X(landEdge), 0);
-    sea.addColorStop(0, '#0b3a5e');
-    sea.addColorStop(0.7, '#1d6f94');
-    sea.addColorStop(1, '#3ea9c1');
-    ctx.fillStyle = sea;
-    ctx.fillRect(X(b.x0), Y(b.z0), (landEdge - b.x0) * scale, spanZ * scale);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
-    ctx.lineWidth = 0.8;
-    for (let i = 1; i <= 2; i++) {
-      const wx = X(b.x0 + ((landEdge - b.x0) * i) / 3);
-      ctx.beginPath();
-      ctx.moveTo(wx, Y(b.z0));
-      ctx.lineTo(wx, Y(b.z1));
-      ctx.stroke();
-    }
-
-    // beach sand band
-    ctx.fillStyle = '#e2cfa6';
-    ctx.fillRect(X(sandLeft), Y(b.z0), (sandRight - sandLeft) * scale, spanZ * scale);
-
-    // district blocks in their palette colors
     for (let i = 0; i < DISTRICTS.length; i++) {
       const d = DISTRICTS[i];
-      if (!d || !d.center || !d.size) continue;
-      const w = num(d.size.w, 0) * scale;
-      const h = num(d.size.d, 0) * scale;
-      const dx = X(num(d.center.x, 0) - num(d.size.w, 0) / 2);
-      const dy = Y(num(d.center.z, 0) - num(d.size.d, 0) / 2);
-      ctx.globalAlpha = 0.55;
-      ctx.fillStyle = swatch(d);
-      ctx.fillRect(dx, dy, w, h);
-      ctx.globalAlpha = 1;
-      const accent = typeof d.accent === 'number'
-        ? '#' + d.accent.toString(16).padStart(6, '0')
-        : '#8fa0a8';
-      ctx.strokeStyle = accent;
-      ctx.globalAlpha = 0.5;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(dx + 0.5, dy + 0.5, Math.max(0, w - 1), Math.max(0, h - 1));
+      const r = rect(d.center.x - d.size.w / 2, d.center.z - d.size.d / 2,
+        d.center.x + d.size.w / 2, d.center.z + d.size.d / 2);
+      ctx.fillStyle = hexOf(d.ground);
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(r[0], r[1], r[2], r[3]);
       ctx.globalAlpha = 1;
     }
 
-    // roads
-    const roadW = num(WORLD.roadWidth, 12) * scale;
-    ctx.strokeStyle = 'rgba(232, 240, 246, 0.22)';
-    ctx.lineWidth = Math.max(1, roadW * 0.55);
-    const linesX = Array.isArray(WORLD.gridLinesX) ? WORLD.gridLinesX : [];
-    for (let i = 0; i < linesX.length; i++) {
-      const px = X(linesX[i]);
+    const sandR = rect(
+      WORLD.sandCenterX - WORLD.sandWidth / 2, BOUNDS.z0,
+      WORLD.sandCenterX + WORLD.sandWidth / 2, BOUNDS.z1,
+    );
+    ctx.fillStyle = '#e3d3ac';
+    ctx.fillRect(sandR[0], sandR[1], sandR[2], sandR[3]);
+
+    const promR = rect(
+      WORLD.promenadeX - WORLD.promenadeWidth / 2, BOUNDS.z0,
+      WORLD.promenadeX + WORLD.promenadeWidth / 2, BOUNDS.z1,
+    );
+    ctx.fillStyle = '#cfc4a8';
+    ctx.fillRect(promR[0], promR[1], promR[2], promR[3]);
+
+    const xs = Array.isArray(WORLD.gridLinesX) ? WORLD.gridLinesX : [];
+    const zs = Array.isArray(WORLD.gridLinesZ) ? WORLD.gridLinesZ : [];
+    ctx.strokeStyle = '#2f353b';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < xs.length; i++) {
+      const px = Math.round(mx(xs[i])) + 0.5;
       ctx.beginPath();
-      ctx.moveTo(px, Y(b.z0));
-      ctx.lineTo(px, Y(b.z1));
+      ctx.moveTo(px, my(WORLD.minZ !== undefined ? WORLD.minZ : BOUNDS.z0));
+      ctx.lineTo(px, my(WORLD.maxZ !== undefined ? WORLD.maxZ : BOUNDS.z1));
       ctx.stroke();
     }
-    const linesZ = Array.isArray(WORLD.gridLinesZ) ? WORLD.gridLinesZ : [];
-    for (let i = 0; i < linesZ.length; i++) {
-      const py = Y(linesZ[i]);
+    for (let i = 0; i < zs.length; i++) {
+      const py = Math.round(my(zs[i])) + 0.5;
       ctx.beginPath();
-      ctx.moveTo(X(linesX.length ? linesX[0] : b.x0), py);
-      ctx.lineTo(X(linesX.length ? linesX[linesX.length - 1] : b.x1), py);
+      ctx.moveTo(mx(xs.length ? xs[0] - 18 : BOUNDS.x0), py);
+      ctx.lineTo(mx(WORLD.maxX), py);
       ctx.stroke();
     }
 
-    // promenade strip
-    ctx.strokeStyle = 'rgba(255, 236, 205, 0.3)';
-    ctx.lineWidth = 1.4;
-    const promX = X(num(WORLD.promenadeX, -178));
-    ctx.beginPath();
-    ctx.moveTo(promX, Y(b.z0));
-    ctx.lineTo(promX, Y(b.z1));
-    ctx.stroke();
-
-    // shoreline
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.42)';
+    ctx.strokeStyle = 'rgba(255,246,229,0.42)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(X(landEdge), Y(b.z0));
-    ctx.lineTo(X(landEdge), Y(b.z1));
+    ctx.moveTo(mx(WORLD.landEdgeX) + 0.5, 0);
+    ctx.lineTo(mx(WORLD.landEdgeX) + 0.5, S);
     ctx.stroke();
 
-    // traffic
-    const traffic = Array.isArray(s.trafficPositions) ? s.trafficPositions : [];
-    ctx.fillStyle = 'rgba(226, 236, 242, 0.72)';
-    for (let i = 0; i < traffic.length; i++) {
-      const p = traffic[i];
-      if (!p) continue;
-      ctx.fillRect(X(num(p.x, 0)) - 1, Y(num(p.z, 0)) - 1, 2, 2);
-    }
-
-    // mission marker
-    const marker = s.missionMarker;
-    if (marker && typeof marker === 'object') {
-      const mx = X(num(marker.x, 0));
-      const my = Y(num(marker.z, 0));
-      const pulse = 0.62 + 0.38 * Math.sin(this.time * 4.2);
-      ctx.save();
-      ctx.translate(mx, my);
-      ctx.rotate(Math.PI * 0.25);
-      const half = 3.2 + pulse * 2.2;
-      ctx.globalAlpha = 0.35;
-      ctx.fillStyle = '#ffc46b';
-      ctx.fillRect(-half - 2, -half - 2, (half + 2) * 2, (half + 2) * 2);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = '#ffb347';
-      ctx.fillRect(-half, -half, half * 2, half * 2);
-      ctx.strokeStyle = '#fff3dd';
-      ctx.lineWidth = 0.9;
-      ctx.strokeRect(-half, -half, half * 2, half * 2);
-      ctx.restore();
-    }
-
-    // police
-    const cops = Array.isArray(s.policePositions) ? s.policePositions : [];
-    for (let i = 0; i < cops.length; i++) {
-      const p = cops[i];
-      if (!p) continue;
-      const px = X(num(p.x, 0));
-      const py = Y(num(p.z, 0));
-      ctx.globalAlpha = 0.3;
-      ctx.fillStyle = '#ff5a4a';
-      ctx.beginPath();
-      ctx.arc(px, py, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = '#ff4b3a';
-      ctx.beginPath();
-      ctx.arc(px, py, 2.1, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // player arrow
-    const playerPos = s.playerPos && typeof s.playerPos === 'object' ? s.playerPos : {};
-    const px = clamp(X(num(playerPos.x, 0)), 5, size - 5);
-    const py = clamp(Y(num(playerPos.z, 0)), 5, size - 5);
-    const heading = num(s.heading, 0);
-    ctx.save();
-    ctx.translate(px, py);
-    ctx.rotate(Math.PI - heading);
-    ctx.beginPath();
-    ctx.moveTo(0, -6.2);
-    ctx.lineTo(4.2, 4.6);
-    ctx.lineTo(0, 2.6);
-    ctx.lineTo(-4.2, 4.6);
-    ctx.closePath();
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = 'rgba(255, 255, 255, 0.75)';
-    ctx.shadowBlur = 6;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = 'rgba(10, 20, 28, 0.8)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.restore();
-
-    // frame + compass
-    ctx.restore();
-    ctx.strokeStyle = 'rgba(255, 236, 205, 0.16)';
-    ctx.lineWidth = 1;
-    this._roundRect(ctx, 0.5, 0.5, size - 1, size - 1, 11);
-    ctx.stroke();
-
-    ctx.font = '700 8px "Trebuchet MS", "Segoe UI", sans-serif';
+    ctx.fillStyle = 'rgba(255,246,229,0.5)';
+    ctx.font = '600 7px "Trebuchet MS","Segoe UI",sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255, 233, 201, 0.65)';
-    ctx.fillText('N', size / 2, 11);
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < DISTRICTS.length; i++) {
+      const d = DISTRICTS[i];
+      if (d.key === 'beachfront') continue;
+      const label = d.name.split(' ')[0].toUpperCase();
+      ctx.fillText(label, mx(d.center.x), my(d.center.z));
+    }
+  }
+
+  // Side-activity blips (taxi fares, time trials, cash stashes). main.js only
+  // hands over the story marker, so the rest is read defensively off the live
+  // missions object and re-scanned a few times a second.
+  scanExtras() {
+    const now = this.time;
+    if (this.extraT && now - this.extraT < 0.5) return this.extraMarkers;
+    this.extraT = now;
+    const out = [];
+    const game = typeof window !== 'undefined' ? window.MARISOL : null;
+    const missions = game && game.missions;
+    if (!missions || typeof missions !== 'object') {
+      this.extraMarkers = out;
+      return out;
+    }
+    let keys = [];
+    try {
+      keys = Object.keys(missions);
+    } catch (err) {
+      keys = [];
+    }
+    for (let k = 0; k < keys.length; k++) {
+      const name = keys[k];
+      if (name.charAt(0) === '_') continue;
+      let value = null;
+      try {
+        value = missions[name];
+      } catch (err) {
+        continue;
+      }
+      if (!Array.isArray(value)) continue;
+      for (let i = 0; i < value.length && i < 24; i++) {
+        const item = value[i];
+        if (!item || typeof item !== 'object') continue;
+        if (item.taken || item.collected || item.done || item.completed) continue;
+        const x = numOf(item.x, item.px, item.position && item.position.x);
+        const z = numOf(item.z, item.pz, item.position && item.position.z);
+        if (x === null || z === null) continue;
+        out.push({ x, z });
+      }
+    }
+    this.extraMarkers = out;
+    return out;
+  }
+
+  drawMap(snap) {
+    const ctx = this.mapCtx;
+    if (!ctx || !this.mapBase) return;
+    const S = TUNE.mapSize;
+
+    ctx.clearRect(0, 0, S, S);
+    ctx.drawImage(this.mapBase, 0, 0);
+
+    if (snap) {
+      const turf = readTurf(snap.turf, snap.districtsTaken);
+      for (let i = 0; i < DISTRICTS.length; i++) {
+        const d = DISTRICTS[i];
+        if (!turf.owned[d.key]) continue;
+        const x = this.mapX(d.center.x - d.size.w / 2);
+        const y = this.mapY(d.center.z - d.size.d / 2);
+        const w = this.mapX(d.center.x + d.size.w / 2) - x;
+        const h = this.mapY(d.center.z + d.size.d / 2) - y;
+        ctx.fillStyle = 'rgba(255,179,71,0.19)';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = 'rgba(255,209,102,0.7)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1));
+      }
+
+      const traffic = snap.trafficPositions;
+      if (Array.isArray(traffic)) {
+        ctx.fillStyle = 'rgba(255,246,229,0.3)';
+        for (let i = 0; i < traffic.length; i++) {
+          const p = traffic[i];
+          if (!p) continue;
+          ctx.fillRect(this.mapX(p.x) - 0.5, this.mapY(p.z) - 0.5, 1, 1);
+        }
+      }
+
+      const police = snap.policePositions;
+      if (Array.isArray(police)) {
+        for (let i = 0; i < police.length; i++) {
+          const p = police[i];
+          if (!p) continue;
+          const x = this.mapX(p.x);
+          const y = this.mapY(p.z);
+          const blink = Math.sin(this.time * 9 + i) > 0;
+          ctx.beginPath();
+          ctx.arc(x, y, 2.1, 0, Math.PI * 2);
+          ctx.fillStyle = blink ? '#ff4438' : '#4f7bff';
+          ctx.fill();
+        }
+      }
+
+      const markers = drawMarkerList(snap);
+      const px = snap.playerPos ? snap.playerPos.x : 0;
+      const pz = snap.playerPos ? snap.playerPos.z : 0;
+      for (let i = 0; i < markers.length; i++) {
+        const m = markers[i];
+        if (Math.hypot(m.x - px, m.z - pz) > 170) continue;
+        const x = this.mapX(m.x);
+        const y = this.mapY(m.z);
+        ctx.beginPath();
+        ctx.arc(x, y, 1.9, 0, Math.PI * 2);
+        ctx.fillStyle = '#7fd8d0';
+        ctx.fill();
+      }
+
+      const extras = this.scanExtras();
+      for (let i = 0; i < extras.length; i++) {
+        const m = extras[i];
+        if (Math.hypot(m.x - px, m.z - pz) > 170) continue;
+        ctx.beginPath();
+        ctx.arc(this.mapX(m.x), this.mapY(m.z), 1.6, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffcf9b';
+        ctx.fill();
+      }
+
+      const marker = snap.missionMarker;
+      const markerX = marker && typeof marker === 'object'
+        ? numOf(marker.x, marker.px, marker.position && marker.position.x, marker.pos && marker.pos.x)
+        : null;
+      const markerZ = marker && typeof marker === 'object'
+        ? numOf(marker.z, marker.pz, marker.position && marker.position.z, marker.pos && marker.pos.z)
+        : null;
+      if (markerX !== null && markerZ !== null) {
+        const pulse = 0.5 + 0.5 * Math.sin(this.time * 4.4);
+        const x = this.mapX(markerX);
+        const y = this.mapY(markerZ);
+        ctx.beginPath();
+        ctx.arc(x, y, 4 + pulse * 4.5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,209,102,' + (0.75 - pulse * 0.5).toFixed(2) + ')';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, 2.6, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffd166';
+        ctx.fill();
+      }
+
+      if (snap.playerPos) {
+        const x = this.mapX(numOf(snap.playerPos.x, 0));
+        const y = this.mapY(numOf(snap.playerPos.z, 0));
+        const heading = typeof snap.heading === 'number' ? snap.heading : 0;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(Math.PI - heading);
+        ctx.beginPath();
+        ctx.moveTo(0, -5.2);
+        ctx.lineTo(3.6, 4.2);
+        ctx.lineTo(0, 2.2);
+        ctx.lineTo(-3.6, 4.2);
+        ctx.closePath();
+        ctx.fillStyle = '#fff6e5';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(20,28,36,0.85)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    ctx.fillStyle = 'rgba(9,16,24,0.55)';
+    ctx.beginPath();
+    ctx.arc(9, 9, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffe9c9';
+    ctx.font = '700 8px "Trebuchet MS","Segoe UI",sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('N', 9, 9.5);
+    ctx.beginPath();
+    ctx.moveTo(9, 3.2);
+    ctx.lineTo(11.2, 7.4);
+    ctx.lineTo(6.8, 7.4);
+    ctx.closePath();
+    ctx.fillStyle = '#ffb347';
+    ctx.fill();
+  }
+
+  // ------------------------------------------------------------------- update
+  update(dt, snap) {
+    const step = typeof dt === 'number' && dt > 0 ? Math.min(dt, 0.25) : 0;
+    this.time += step;
+    if (snap) this.snapshot = snap;
+
+    this.updateToasts(step);
+    this.updateCard(step);
+
+    if (this.started !== this.cache.started) {
+      this.cache.started = this.started;
+      this.syncVisibility();
+    }
+
+    if (!this.started) {
+      this.titleAcc = (this.titleAcc || 0) + step;
+      if (this.panel === 'title' && (this.titleAcc > 1 || !this.titleShown)) {
+        this.titleAcc = 0;
+        this.titleShown = true;
+        this.refreshTitle();
+      }
+    }
+
+    if (this.started) this.applySnapshot(snap, step);
+
+    this.mapAcc += step;
+    if (this.started && this.mapVisible) {
+      const interval = 1 / TUNE.mapHz;
+      if (this.mapAcc >= interval || !this.mapDrawn) {
+        this.mapAcc = 0;
+        this.mapDrawn = true;
+        this.drawMap(snap);
+      }
+    }
+  }
+
+  applySnapshot(snap, dt) {
+    if (!snap) return;
+    const step = typeof dt === 'number' && dt > 0 ? dt : 0;
+
+    const cash = numOf(snap.cash);
+    let cashDelta = 0;
+    const prevCash = this.prev.cash;
+    if (cash !== null) {
+      const shown = Math.round(cash);
+      this.setText('cash', this.el.cash, money(shown));
+      if (this.prev.cash !== null && shown !== this.prev.cash) {
+        cashDelta = shown - this.prev.cash;
+        if (cashDelta >= 50) this.toast('+' + money(cashDelta) + ' CASH', 2.4);
+        else if (cashDelta <= -50) this.toast('-' + money(-cashDelta), 2.4);
+      }
+      this.prev.cash = shown;
+    }
+
+    const wanted = clamp(Math.round(numOf(snap.wanted) || 0), 0, 5);
+    if (wanted !== this.cache.wanted) {
+      const firstSync = this.cache.wanted === undefined;
+      this.cache.wanted = wanted;
+      for (let i = 0; i < this.el.starSpans.length; i++) {
+        const on = i < wanted;
+        const star = this.el.starSpans[i];
+        if (on) star.classList.add('on');
+        else star.classList.remove('on');
+      }
+      if (this.el.stars) {
+        if (wanted >= 4) this.el.stars.classList.add('hot');
+        else this.el.stars.classList.remove('hot');
+      }
+      if (!firstSync && wanted > this.prev.wanted) this.toast('WANTED LEVEL ' + wanted, 2.2);
+      else if (!firstSync && wanted < this.prev.wanted && wanted === 0) this.toast('HEAT CLEARED', 2.2);
+      else if (!firstSync && wanted < this.prev.wanted) this.toast('HEAT COOLING \u2014 ' + wanted + ' STAR', 2.2);
+      if (wanted === 0 && this.prev.wanted >= 1 && cashDelta <= -100) {
+        const fine = -cashDelta;
+        this.deathAt = this.time;
+        this.showCard('failed', {
+          head: 'Marisol PD',
+          title: fine >= 200 ? 'Busted' : 'Wasted',
+          sub: fine >= 200
+            ? 'They ran your plate and took the fine out of your pocket.'
+            : 'The bay spits you back out on the promenade.',
+          rows: [
+            [fine >= 200 ? 'Fine' : 'Hospital bill', money(fine)],
+            ['Bank', money(prevCash === null ? 0 : prevCash)],
+            ['Retry', 'Press J'],
+          ],
+        });
+      }
+      this.prev.wanted = wanted;
+      this.wanted = wanted;
+    }
+
+    const health = numOf(snap.health);
+    if (health !== null) {
+      const hp = clamp(Math.round(health), 0, 100);
+      if (hp !== this.cache.health) {
+        this.cache.health = hp;
+        this.setText('hp', this.el.hpValue, hp);
+        this.setStyle('hpw', this.el.hpFill, 'width', hp + '%');
+        const cls = hp <= TUNE.lowHealth ? 'mb-health-fill low' : hp <= 60 ? 'mb-health-fill mid' : 'mb-health-fill';
+        if (this.cache.hpClass !== cls) {
+          this.cache.hpClass = cls;
+          this.el.hpFill.className = cls;
+        }
+      }
+      if (this.prev.health !== null && hp < this.prev.health - 1) {
+        this.flash = Math.min(1, this.flash + (this.prev.health - hp) / 34);
+      }
+      if (this.prev.health !== null && this.prev.health <= 18 && hp >= 99 &&
+        this.time - (this.deathAt || -99) > 6) {
+        this.deathAt = this.time;
+        this.showCard('failed', {
+          head: 'Marisol Bay',
+          title: 'Wasted',
+          sub: 'Patched up on the promenade. The bay keeps your cash, not your pride.',
+          rows: [
+            ['Hospital bill', money(cashDelta < 0 ? -cashDelta : 0)],
+            ['Bank', money(prevCash === null ? 0 : prevCash)],
+            ['Retry', 'Press J'],
+          ],
+        });
+      }
+      this.prev.health = hp;
+    }
+
+    const ammo = numOf(snap.ammo);
+    if (ammo !== null) this.setText('ammo', this.el.ammo, 'Pistol \u00b7 ' + Math.round(ammo) + ' rounds');
+
+    const turf = readTurf(snap.turf, snap.districtsTaken);
+    this.turfCount = turf.count;
+    for (let i = 0; i < DISTRICTS.length && i < this.el.pips.length; i++) {
+      const key = DISTRICTS[i].key;
+      const value = turf.pct[key] || 0;
+      const cacheKey = 'pip:' + key;
+      if (this.cache[cacheKey] === value) continue;
+      this.cache[cacheKey] = value;
+      const pip = this.el.pips[i];
+      if (value >= 100) {
+        pip.classList.add('on');
+        pip.style.background = '';
+      } else {
+        pip.classList.remove('on');
+        const fill = Math.round(value);
+        pip.style.background = fill > 0
+          ? 'linear-gradient(90deg,#ffb347 ' + fill + '%,rgba(255,246,229,.16) ' + fill + '%)'
+          : '';
+      }
+    }
+    if (turf.count !== this.cache.turf) {
+      this.cache.turf = turf.count;
+      this.setText('turf', this.el.turfCount, turf.count + ' / ' + TUNE.districtCount);
+    }
+
+    const income = turf.count * INCOME_PER_TICK;
+    if (income !== this.cache.income) {
+      const prevIncome = this.cache.income;
+      this.cache.income = income;
+      this.setText(
+        'income',
+        this.el.income,
+        income > 0
+          ? money(income) + ' / ' + INCOME_TICK + 's \u00b7 income'
+          : 'No district income',
+      );
+      if (typeof prevIncome === 'number' && income > prevIncome) {
+        this.toast('DISTRICT INCOME  +' + money(income - prevIncome) + ' / TICK', 2.6);
+      }
+    }
+
+    const obj = readObjective(snap.objective, snap.district);
+    const objKey = obj.title + '|' + obj.text + '|' + obj.progress;
+    if (objKey !== this.cache.objKey) {
+      this.cache.objKey = objKey;
+      this.setText('objTitle', this.objTitle, obj.title);
+      this.setText('objText', this.objText, obj.text);
+      this.setText('objProgress', this.objProgress, obj.progress);
+      const showBar = obj.ratio >= 0;
+      if (this.objBar) this.objBar.style.display = showBar ? 'block' : 'none';
+      if (showBar) this.setStyle('objFill', this.objFill, 'width', Math.round(obj.ratio * 100) + '%');
+    }
+
+    const driving = !!snap.driving;
+    if (driving !== this.cache.driving) {
+      this.cache.driving = driving;
+      if (this.el.speed) {
+        if (driving) this.el.speed.classList.add('on');
+        else this.el.speed.classList.remove('on');
+      }
+    }
+
+    const kmh = Math.round(Math.abs(numOf(snap.speed) || 0) * 3.6);
+    if (kmh !== this.cache.kmh) {
+      this.cache.kmh = kmh;
+      this.setText('kmh', this.el.speedNum, kmh);
+    }
+
+    const carType = snap.driving && snap.driving !== true && typeof snap.driving === 'object'
+      ? snap.driving.type
+      : (typeof window !== 'undefined' && window.MARISOL && window.MARISOL.driving
+        ? window.MARISOL.driving.type
+        : null);
+    const vehicleLabel = driving
+      ? (VEHICLE_NAMES[carType] || 'Stolen ' + (carType || 'car'))
+      : 'On foot';
+    if (vehicleLabel !== this.cache.vehicle) {
+      this.cache.vehicle = vehicleLabel;
+      this.setText('vehicle', this.el.vehicle, vehicleLabel);
+    }
+
+    const tod = textOf(snap.timeOfDay) || (typeof window !== 'undefined' && window.MARISOL ? window.MARISOL.timeOfDay : '') || 'day';
+    if (tod !== this.cache.tod) {
+      this.cache.tod = tod;
+      const labels = { day: 'Day', dusk: 'Dusk', night: 'Night' };
+      this.setText('tod', this.el.timeLabel, labels[tod] || tod);
+      this.el.timeChip.className = 'mb-chip tod-' + (labels[tod] ? tod : 'day');
+    }
+
+    this.updateVignette(step, numOf(snap.health));
+  }
+
+  updateVignette(dt, health) {
+    if (!this.vignette) return;
+    this.flash = Math.max(0, this.flash - dt * TUNE.damageFlash);
+    let value = this.flash * 0.9;
+    if (typeof health === 'number' && health <= TUNE.lowHealth) {
+      const lowness = 1 - clamp(health / TUNE.lowHealth, 0, 1);
+      value = Math.max(value, lowness * (0.22 + 0.16 * Math.sin(this.time * 5.4)));
+    }
+    const opacity = clamp(value, 0, 0.92);
+    if (Math.abs(opacity - this.vigValue) > 0.02) {
+      this.vigValue = opacity;
+      this.vignette.style.opacity = opacity.toFixed(2);
+    }
+  }
+
+  dispose() {
+    if (typeof window !== 'undefined') window.removeEventListener('resize', this._onResize);
+    this.clearToasts();
+    this.hideCard();
   }
 }
 
-export default HUD;

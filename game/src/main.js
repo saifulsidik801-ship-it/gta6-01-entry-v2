@@ -1,7 +1,7 @@
 // MARISOL BAY - boot, renderer, sky, fixed-timestep loop.
 
 import * as THREE from 'three';
-import { WORLD, SPAWN, SKY, CAMERA, PLAYER, DEFAULTS } from './config.js';
+import { WORLD, SPAWN, SKY, CAMERA, PLAYER, DEFAULTS, TURF, TURF_INCOME_TICK, TURF_INCOME_PER_TICK } from './config.js';
 import { buildWorld } from './world.js';
 import { buildPlayer } from './player.js';
 import { buildCamera } from './camera.js';
@@ -551,8 +551,11 @@ function updateCameraTarget(dt) {
       while (diff < -Math.PI) diff += Math.PI * 2;
       cam.yaw += diff * Math.min(1, dt * 3.5);
     }
+    if (typeof cam.setShoulder === 'function') cam.setShoulder(0);
     cam.update(dt, driving.group.position, sampleGround);
   } else {
+    const shoulder = shotStage ? 0 : CAMERA.shoulderOffset || 0;
+    if (typeof cam.setShoulder === 'function') cam.setShoulder(shoulder);
     cam.update(dt, player.position, sampleGround);
   }
 }
@@ -564,6 +567,24 @@ function updateHud() {
   } else {
     setHint(nearestParkedCar() ? 'E - Enter car' : '');
   }
+  updateTurfIncome();
+}
+
+// The turf income ticker lives outside #hud so it survives HUD re-renders: it simply
+// reports what the owned districts pay per tick and the current district count.
+const turfIncomeEl = document.getElementById('turf-income');
+let turfIncomeText = '';
+
+function updateTurfIncome() {
+  if (!turfIncomeEl) return;
+  const owned = missions.turfCount();
+  const perTick = owned * TURF_INCOME_PER_TICK;
+  const text = '$' + perTick + ' / ' + TURF_INCOME_TICK + 's  \u00b7  ' + owned + '/' + TURF.districtCount;
+  if (text === turfIncomeText) return;
+  turfIncomeText = text;
+  const cashEl = turfIncomeEl.querySelector('.turf-cash');
+  if (cashEl) cashEl.textContent = text;
+  else turfIncomeEl.textContent = text;
 }
 
 function districtNameAt(x, z) {
@@ -894,11 +915,36 @@ window.addEventListener('keydown', (e) => {
     startNextMission();
   } else if (e.code === 'KeyH') {
     hud.toggleMissions();
+  } else if (e.code === 'Tab') {
+    e.preventDefault();
+    const pos = driving ? driving.group.position : player.position;
+    hud.toast((world.districtAt(pos.x, pos.z) || 'MARISOL BAY').toUpperCase(), 1.8);
+  } else if (e.code === 'KeyC') {
+    if (!driving) return;
+    if (typeof audio.playHorn === 'function') audio.playHorn();
+    else if (typeof audio.playPickup === 'function') audio.playPickup();
   }
 });
 
 audio.arm();
 input.setEnabled(false);
+
+// Drop into the pause menu whenever the tab loses focus, so a stray keypress or a
+// minimised window cannot keep Milo walking into traffic. Screenshot scenes and the
+// un-started start screen are left alone, and focus return never auto-resumes.
+function pauseForFocusLoss() {
+  if (shot || shotStage) return;
+  if (!hud || !hud.started) return;
+  if (paused) return;
+  paused = true;
+  hud.setPaused(true);
+  autosave();
+}
+
+window.addEventListener('blur', pauseForFocusLoss);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) pauseForFocusLoss();
+});
 
 if (shot) {
   try {

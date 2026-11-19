@@ -16,6 +16,8 @@ const KEY_MAP = {
   KeyF: 'action',
   Escape: 'pause',
   KeyR: 'reset',
+  KeyC: 'horn',
+  Tab: 'map',
 };
 
 export function buildInput(domElement) {
@@ -30,6 +32,8 @@ export function buildInput(domElement) {
     action: false,
     pause: false,
     reset: false,
+    horn: false,
+    map: false,
   };
 
   const pressed = {
@@ -38,6 +42,8 @@ export function buildInput(domElement) {
     action: false,
     pause: false,
     reset: false,
+    horn: false,
+    map: false,
   };
 
   const mouse = {

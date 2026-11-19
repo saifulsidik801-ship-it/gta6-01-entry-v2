@@ -429,6 +429,118 @@ export function buildWorld(scene) {
     }
   }
 
+  // ------------------------------------------------------- Plaza del Sol landmark
+  // A paved landmark square in the Old Quarter. It reserves one city cell, carries
+  // the district's turf-point marker, and doubles as a meeting spot for story jobs.
+  const plaza = {
+    name: 'Plaza del Sol',
+    district: 'oldquarter',
+    cell: { i: 1, j: 2 },
+    marker: { x: 0, z: 0 },
+    radius: 15,
+  };
+  const landmarks = [plaza];
+
+  const plazaPaveMat = track(new THREE.MeshLambertMaterial({ color: 0xcbbfa6 }));
+  const plazaTrimMat = track(new THREE.MeshLambertMaterial({ color: 0x9c8f78 }));
+  const fountainStoneMat = track(new THREE.MeshLambertMaterial({ color: 0xdfd6c2 }));
+  const fountainWaterMat = track(new THREE.MeshLambertMaterial({ color: 0x2f8fae }));
+  const bannerMats = [
+    track(new THREE.MeshLambertMaterial({ color: 0x2fb6c9, side: THREE.DoubleSide })),
+    track(new THREE.MeshLambertMaterial({ color: 0xd9744f, side: THREE.DoubleSide })),
+  ];
+  const shrubMat = track(new THREE.MeshLambertMaterial({ color: 0x467a45 }));
+
+  function addPlaza(cx, cz) {
+    plaza.marker.x = cx;
+    plaza.marker.z = cz;
+
+    const side = cellInner - 6;
+    const pave = new THREE.Mesh(unitBox, plazaPaveMat);
+    pave.position.set(cx, 0.08, cz);
+    pave.scale.set(side, 0.16, side);
+    group.add(pave);
+
+    const trim = new THREE.Mesh(unitBox, plazaTrimMat);
+    trim.position.set(cx, 0.1, cz);
+    trim.scale.set(side + 1.4, 0.1, side + 1.4);
+    group.add(trim);
+
+    // Central fountain: stone basin, water disc, column and bowl.
+    const basin = new THREE.Mesh(
+      track(new THREE.CylinderGeometry(3.5, 3.7, 0.9, 18)),
+      fountainStoneMat,
+    );
+    basin.position.set(cx, 0.45, cz);
+    group.add(basin);
+
+    const basinWater = new THREE.Mesh(
+      track(new THREE.CylinderGeometry(3.0, 3.0, 0.12, 18)),
+      fountainWaterMat,
+    );
+    basinWater.position.set(cx, 0.86, cz);
+    group.add(basinWater);
+
+    const column = new THREE.Mesh(
+      track(new THREE.CylinderGeometry(0.55, 0.75, 2.3, 10)),
+      fountainStoneMat,
+    );
+    column.position.set(cx, 2.0, cz);
+    group.add(column);
+
+    const bowl = new THREE.Mesh(
+      track(new THREE.CylinderGeometry(1.9, 1.25, 0.4, 14)),
+      fountainStoneMat,
+    );
+    bowl.position.set(cx, 3.25, cz);
+    group.add(bowl);
+
+    colliders.push({
+      minX: cx - 3.6, maxX: cx + 3.6,
+      minZ: cz - 3.6, maxZ: cz + 3.6,
+      height: 3.45, kind: 'fountain',
+    });
+
+    // Four corner planters, each holding a shrub, keeping the plaza walkable inside.
+    const planterCorners = [
+      [cx - side * 0.36, cz - side * 0.36],
+      [cx + side * 0.36, cz - side * 0.36],
+      [cx - side * 0.36, cz + side * 0.36],
+      [cx + side * 0.36, cz + side * 0.36],
+    ];
+    for (const [px, pz] of planterCorners) {
+      const planter = new THREE.Mesh(unitBox, plazaTrimMat);
+      planter.position.set(px, 0.42, pz);
+      planter.scale.set(3.4, 0.7, 3.4);
+      group.add(planter);
+      const shrub = new THREE.Mesh(track(new THREE.ConeGeometry(1.35, 2.3, 7)), shrubMat);
+      shrub.position.set(px, 1.9, pz);
+      group.add(shrub);
+      colliders.push({
+        minX: px - 1.7, maxX: px + 1.7,
+        minZ: pz - 1.7, maxZ: pz + 1.7,
+        height: 3.0, kind: 'planter',
+      });
+    }
+
+    // Banner poles around the rim mark it as turf ground from across the district.
+    const rim = side * 0.5 - 1.6;
+    const bannerSpots = [
+      [cx - rim, cz], [cx + rim, cz], [cx, cz - rim], [cx, cz + rim],
+    ];
+    for (let b = 0; b < bannerSpots.length; b++) {
+      const [bx, bz] = bannerSpots[b];
+      const pole = new THREE.Mesh(track(new THREE.CylinderGeometry(0.14, 0.18, 6.2, 6)), plazaTrimMat);
+      pole.position.set(bx, 3.1, bz);
+      group.add(pole);
+      const flag = new THREE.Mesh(plane, bannerMats[b % 2]);
+      flag.position.set(bx, 5.1, bz);
+      flag.scale.set(2.4, 1.5, 1);
+      flag.rotation.y = b * 0.7 + 0.4;
+      group.add(flag);
+    }
+  }
+
   // -------------------------------------------------------------- city blocks
   const subCount = {
     downtown: 2,
@@ -451,6 +563,12 @@ export function buildWorld(scene) {
       const district = districtForPoint(cx, cz);
       if (!district) continue;
       if (district.key === 'beachfront') continue;
+
+      // The landmark plaza claims its own city cell instead of a normal block.
+      if (district.key === plaza.district && i === plaza.cell.i && j === plaza.cell.j) {
+        addPlaza(cx, cz);
+        continue;
+      }
 
       let plateauY = 0;
       if (district.key === 'hillside') {
@@ -735,7 +853,6 @@ export function buildWorld(scene) {
       b.mesh.rotation.z = Math.sin(elapsed * 0.65 + b.phase) * 0.028;
     }
   }
-
   function dispose() {
     scene.remove(group);
     for (const item of disposables) {
@@ -749,6 +866,11 @@ export function buildWorld(scene) {
     buildings,
     boats,
     water,
+    landmarks,
+    plaza,
+    turfMarkers: [
+      { district: plaza.district, name: plaza.name, x: plaza.marker.x, z: plaza.marker.z, radius: plaza.radius },
+    ],
     districtAt,
     districtByKey: districtByKeyLookup,
     districts: DISTRICTS,
