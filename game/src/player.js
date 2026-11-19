@@ -146,7 +146,6 @@ export function buildPlayer(scene, spawn) {
     speed: 0,
     phase: 0,
     running: false,
-    blockY: 0,
   };
 
   root.position.set(state.x, state.y, state.z);
@@ -270,7 +269,7 @@ export function buildPlayer(scene, spawn) {
 
     root.position.set(state.x, state.y, state.z);
     root.rotation.y = state.facing;
-    shadow.position.y = 0.02 + Math.max(0, groundY - state.y) * 0;
+    shadow.position.y = 0.02;
 
     return state;
   }

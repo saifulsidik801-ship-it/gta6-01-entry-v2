@@ -347,9 +347,8 @@ function coverChase(ctx) {
       holdLane(car, anchor, 36.2, Math.PI),
       holdEscort(car, [c1, c2, c3], [9, 18, 28]),
       keepTraffic(ctx, traffic, { x: 36, z: -60 }, 80),
-      (dt) => {
+      () => {
         for (let i = 0; i < cops.length; i++) cops[i].arrest = 0;
-        void dt;
       },
     ),
   };

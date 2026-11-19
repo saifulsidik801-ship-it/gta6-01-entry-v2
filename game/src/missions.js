@@ -123,7 +123,7 @@ export const MISSIONS = [
   },
 ];
 
-// 12 hidden cash stashes: four districts get two, four get one.
+// 12 hidden cash stashes, two in every district.
 export const COLLECTIBLES = [
   { x: -188, z: 96, district: 'beachfront' },
   { x: -186, z: -158, district: 'beachfront' },
@@ -139,7 +139,6 @@ export const COLLECTIBLES = [
   { x: 62, z: 152, district: 'hillside' },
 ];
 
-const RING_GAP = 3;
 const BEACON_COLORS = {
   mission: 0xffc14d,
   side: 0x4fd6c9,
@@ -536,7 +535,7 @@ export class Missions {
     this.combatTurfCd = Math.max(0, (this.combatTurfCd || 0) - step);
 
     this.updateIncome(step);
-    this.updateCollectibles(step);
+    this.updateCollectibles();
     this.updateMarkers(step);
 
     if (this.mission) this.updateMission(step);
@@ -969,5 +968,3 @@ export class Missions {
     return !!this.mission;
   }
 }
-
-export { COLLECTIBLES as CASH_STASHES };

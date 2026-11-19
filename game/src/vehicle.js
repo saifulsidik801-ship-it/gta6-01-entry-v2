@@ -230,7 +230,6 @@ export function buildCar(scene, opts = {}) {
     const wheel = new THREE.Mesh(wheelGeometry(dims.wheelRadius, dims.wheelWidth), tire);
     pivot.add(wheel);
     wheel.add(new THREE.Mesh(wheelGeometry(dims.wheelRadius * 0.45, dims.wheelWidth + 0.04), hub));
-    pivot.wheel = wheel;
 
     wheels.push(wheel);
     if (steerable) frontWheels.push(pivot);

@@ -249,6 +249,7 @@ export function buildWorld(scene) {
   const swOff = roadHalf + swW / 2;
   const roadSpanX = WORLD.maxX - (WORLD.gridMinX - 20);
   const roadSpanZ = WORLD.size;
+  const gridCenterX = (WORLD.gridMinX - 20 + WORLD.maxX) / 2;
 
   for (const gx of xs) {
     const strip = new THREE.Mesh(plane, asphaltMat);
@@ -261,7 +262,7 @@ export function buildWorld(scene) {
     const strip = new THREE.Mesh(plane, asphaltMat);
     strip.rotation.x = -Math.PI / 2;
     strip.scale.set(roadSpanX, WORLD.roadWidth, 1);
-    strip.position.set((WORLD.gridMinX - 20 + WORLD.maxX) / 2, 0.05, gz);
+    strip.position.set(gridCenterX, 0.05, gz);
     group.add(strip);
   }
 

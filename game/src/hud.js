@@ -123,7 +123,6 @@ export class HUD {
     this.started = false;
 
     this.objNode = document.getElementById('objective');
-    this.wantedNode = document.getElementById('wanted');
     this.startNode = document.getElementById('start');
     if (this.startNode) {
       this.startNode.innerHTML = '';
@@ -249,7 +248,6 @@ export class HUD {
 
     this.missionsBox = el('div', this.root, 'mb-panel mb-missions');
     el('div', this.missionsBox, 'mb-mtitle', 'STORY JOBS');
-    this.missionRows = [];
   }
 
   buildToast() {
@@ -280,11 +278,9 @@ export class HUD {
       const m = list[i];
       const row = el('div', this.missionsBox,
         'mb-mission' + (m.completed ? ' done' : '') + (m.locked ? ' locked' : ''));
-      const name = el('span', row, '', (i + 1) + '. ' + m.title +
+      el('span', row, '', (i + 1) + '. ' + m.title +
         (m.completed ? ' \u2713' : m.locked ? ' \u2014' : ''));
-      const pay = el('b', row, '', '$' + m.reward);
-      void name;
-      void pay;
+      el('b', row, '', '$' + m.reward);
       this.missionRowNodes.push(row);
     }
   }

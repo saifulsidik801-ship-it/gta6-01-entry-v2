@@ -70,8 +70,6 @@ WORLD.gridLinesZ = (() => {
   return lines;
 })();
 
-WORLD.gridLines = WORLD.gridLinesX;
-
 export const SPAWN = { x: -170, z: 40, facing: Math.PI * 0.5 };
 
 export const DISTRICTS = [
@@ -149,11 +147,6 @@ export const DISTRICTS = [
   },
 ];
 
-export const DISTRICT_BY_KEY = DISTRICTS.reduce((acc, d) => {
-  acc[d.key] = d;
-  return acc;
-}, {});
-
 export const PLAYER = {
   walkSpeed: 6.0,
   runSpeed: 11.2,
@@ -230,10 +223,8 @@ export const TIME_OF_DAY = {
 
 export const ROAD_COLORS = {
   asphalt: 0x3c3f44,
-  asphaltDark: 0x33363a,
   line: 0xf2e6c4,
   sidewalk: 0xb9b5aa,
-  sidewalkTrim: 0x9d998e,
   crosswalk: 0xeee9dc,
 };
 

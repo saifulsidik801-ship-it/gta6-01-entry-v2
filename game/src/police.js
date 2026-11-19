@@ -175,7 +175,6 @@ export class Police {
     this.cruiserTimer = 0;
     this.copTimer = 0;
     this.player = { x: SPAWN.x, z: SPAWN.z };
-    this.playerDriving = false;
 
     this.onBusted = null;
 
@@ -514,7 +513,6 @@ export class Police {
     const ps = (this.getPlayerState && this.getPlayerState()) || {};
     const pos = ps.position || this.player || { x: SPAWN.x, z: SPAWN.z };
     this.player = pos;
-    this.playerDriving = !!ps.driving;
     this.time += step;
     this.crimeTimer += step;
 

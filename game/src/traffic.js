@@ -3,7 +3,7 @@
 // throttle/steer so it shares the same physics and wheel animation as the player.
 
 import { Vehicle, buildCar } from './vehicle.js';
-import { WORLD } from './config.js';
+import { WORLD, clamp } from './config.js';
 
 const LANE = WORLD.roadWidth / 2 - 2.2;
 
@@ -19,7 +19,6 @@ const SCAN_PLAYER = 8;
 const SCAN_OBSTACLE = 8;
 const SCAN_SIDE = 2.6;
 const SEPARATION = 4;
-const BOX_RADIUS = 10.5;
 const U_TURN_COOLDOWN = 2.5;
 const STUCK_LIMIT = 5;
 
@@ -38,10 +37,6 @@ const PAINT = [
   0xe9e3d3, 0x2f8f9c, 0xb4b9be, 0xd9c4a3, 0xc8382a, 0x3d6b8f,
   0xe0d7c4, 0x8a9a6b, 0x2f6f5e, 0xa8763f, 0xcfd6d8, 0x7b4a3a,
 ];
-
-function clamp(v, min, max) {
-  return v < min ? min : v > max ? max : v;
-}
 
 function wrapAngle(a) {
   return ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
@@ -99,7 +94,6 @@ export class Traffic {
     this.random = makeRandom(opts.seed === undefined ? 0x51c7a3 : opts.seed);
     this.roadsX = WORLD.gridLinesX.slice();
     this.roadsZ = WORLD.gridLinesZ.slice();
-    this.lane = LANE;
 
     this.specs = carDims(TYPES);
     this.types = TYPES.filter((t) => this.specs[t] !== undefined);

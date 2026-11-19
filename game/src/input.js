@@ -50,7 +50,6 @@ export function buildInput(domElement) {
   };
 
   let enabled = true;
-  let rightDown = false;
 
   function setKey(code, down) {
     const name = KEY_MAP[code];
@@ -77,7 +76,6 @@ export function buildInput(domElement) {
     if (!enabled) return;
     if (e.button === 0 || e.button === 2) {
       mouse.dragging = true;
-      rightDown = e.button === 2;
       mouse.lastX = e.clientX;
       mouse.lastY = e.clientY;
       if (domElement.setPointerCapture && e.pointerId !== undefined) {
@@ -100,7 +98,6 @@ export function buildInput(domElement) {
 
   function onPointerUp() {
     mouse.dragging = false;
-    rightDown = false;
   }
 
   function onWheel(e) {
@@ -116,7 +113,6 @@ export function buildInput(domElement) {
   function onBlur() {
     for (const k of Object.keys(keys)) keys[k] = false;
     mouse.dragging = false;
-    rightDown = false;
   }
 
   window.addEventListener('keydown', onKeyDown);

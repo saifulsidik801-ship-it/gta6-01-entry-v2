@@ -25,12 +25,11 @@ const outputGame = join(outputDir, 'game');
 const outputShots = join(outputDir, 'screenshots');
 
 mkdirSync(outputDir, { recursive: true });
-mkdirSync(outputShots, { recursive: true });
 
 cpSync(sourceGame, outputGame, { recursive: true });
 if (existsSync(sourceShots)) cpSync(sourceShots, outputShots, { recursive: true });
 
-// Caps mirror reference/gate.json so this program refuses an entry the scorer would refuse:
+// Caps mirror the bounty gate so this program refuses an entry the scorer would refuse:
 // source text under 160 KiB, at most 4 screenshots of 256 KiB each, at most 993 files and
 // 48 MiB under game/, and no path under game/ longer than 1000 bytes.
 writeFileSync(

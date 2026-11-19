@@ -28,10 +28,6 @@ const HEALTH = {
   ramDamage: 7,
 };
 
-function wrapAngle(a) {
-  return ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-}
-
 function aimAngle(playerState) {
   if (!playerState) return 0;
   if (typeof playerState.camYaw === 'number') return playerState.camYaw;
@@ -57,7 +53,6 @@ export class Combat {
       alive: true,
     };
 
-    this.reloading = false;
     this.onShoot = null;
     this.onPunch = null;
     this.onHitPed = null;
@@ -65,7 +60,6 @@ export class Combat {
     this.onDamage = null;
     this.onDeath = null;
 
-    this.time = 0;
     this.clicks = 0;
     this._keyG = false;
     this._clickQueued = false;
@@ -93,7 +87,7 @@ export class Combat {
     }
   }
 
-  fire(police) {
+  fire() {
     const st = this.state;
     if (st.reloading || st.shotCd > 0 || !st.alive) return false;
     if (st.ammo <= 0) {
@@ -216,7 +210,7 @@ export class Combat {
 
   // ------------------------------------------------------------------ ranged
   shoot(playerState, police) {
-    if (!this.fire(police)) return false;
+    if (!this.fire()) return false;
 
     const st = this.state;
     const px = playerState.position.x;
@@ -304,7 +298,6 @@ export class Combat {
     const step = clamp(dt || 0, 0, 0.05);
     if (step <= 0 || !playerState) return this.state;
     const st = this.state;
-    this.time += step;
 
     st.punchCd = Math.max(0, st.punchCd - step);
     st.shotCd = Math.max(0, st.shotCd - step);

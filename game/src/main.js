@@ -277,14 +277,13 @@ window.MARISOL = {
 };
 
 window.MARISOL.dom = {};
-for (const el of ['hud', 'minimap', 'objective', 'wanted', 'start']) {
+for (const el of ['hud', 'minimap', 'objective', 'start']) {
   const node = document.getElementById(el);
   if (node) window.MARISOL.dom[el] = node;
 }
 window.MARISOL.hudRoot = document.getElementById('hud');
 window.MARISOL.minimap = document.getElementById('minimap');
 window.MARISOL.objective = document.getElementById('objective');
-window.MARISOL.wanted = document.getElementById('wanted');
 window.MARISOL.start = document.getElementById('start');
 
 const hint = document.createElement('div');
@@ -497,7 +496,8 @@ function stageShot() {
     hud.startOverlay.style.display = 'none';
   }
   input.setEnabled(true);
-  combat._clickQueued = false;  if (typeof combat._keyG === 'boolean') combat._keyG = false;
+  combat._clickQueued = false;
+  if (typeof combat._keyG === 'boolean') combat._keyG = false;
 
   rebuildPlayerColliders();
   cam.snap(driving ? driving.group.position : player.position, sampleGround);
@@ -566,8 +566,7 @@ function updateHud() {
 }
 
 function districtNameAt(x, z) {
-  const d = world.districtAt ? world.districtAt(x, z) : '';
-  return d || '';
+  return world.districtAt(x, z) || '';
 }
 
 function buildHudSnapshot() {

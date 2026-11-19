@@ -32,7 +32,6 @@ export class Audio {
     this.nextBar = 0;
     this.bar = 0;
     this.armed = false;
-    this._gesture = null;
   }
 
   init() {
@@ -68,7 +67,7 @@ export class Audio {
   }
 
   // Attach the one-shot gesture listeners that unlock audio.
-  arm(target) {
+  arm() {
     if (this.armed || typeof window === 'undefined') return;
     this.armed = true;
     const unlock = () => {
@@ -80,7 +79,6 @@ export class Audio {
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
     window.addEventListener('touchstart', unlock);
-    void target;
   }
 
   buildNoise() {

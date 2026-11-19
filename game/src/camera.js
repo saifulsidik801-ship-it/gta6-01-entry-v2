@@ -14,7 +14,6 @@ export function buildCamera(camera, domElement) {
   const smoothPos = new THREE.Vector3();
 
   let initialised = false;
-  let groundY = 0;
 
   function applyOrbit(dx, dy) {
     yaw -= dx * CAMERA.sensitivity;
@@ -30,7 +29,7 @@ export function buildCamera(camera, domElement) {
   }
 
   function update(dt, target, sampleGround) {
-    groundY = sampleGround ? sampleGround(target.x, target.z) : 0;
+    const groundY = sampleGround ? sampleGround(target.x, target.z) : 0;
 
     wantedTarget.set(target.x, target.y + CAMERA.targetHeight, target.z);
 

@@ -215,7 +215,7 @@ export class Pedestrians {
     scene.add(this.group);
 
     this.peds = [];
-    this._build(opts);
+    this._build();
   }
 
   // ------------------------------------------------------------------ spawning
@@ -608,7 +608,6 @@ export class Pedestrians {
     if (blocked(this.colliders, cx, cz)) {
       if (p.axis === prevAxis) p.along = prevAlong;
       p.dir = -p.dir;
-      p.heading = headingOf(p);
       this._nextCorner(p);
     }
 

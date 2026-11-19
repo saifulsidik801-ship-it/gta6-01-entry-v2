@@ -115,7 +115,6 @@ export class Effects {
 
     this.cursor = 0;
     this.live = 0;
-    this.time = 0;
     this._color = new THREE.Color();
   }
 
@@ -170,7 +169,6 @@ export class Effects {
   update(dt) {
     const step = dt > 0 ? Math.min(dt, 0.1) : 0;
     if (step <= 0) return;
-    this.time += step;
 
     let live = 0;
     for (let i = 0; i < this.max; i++) {

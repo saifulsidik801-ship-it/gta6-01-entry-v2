@@ -4,7 +4,6 @@ export class Save {
   constructor(key = STORAGE_KEY) {
     this.key = key;
     this.lastSaved = 0;
-    this.available = true;
     this.check();
   }
 
