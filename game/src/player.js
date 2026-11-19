@@ -4,14 +4,14 @@ import * as THREE from 'three';
 import { PLAYER, WORLD, clamp } from './config.js';
 
 const COLORS = {
-  jacket: 0x1fa3a0,
-  jacketDark: 0x14706f,
+  jacket: 0xe85d26,
+  jacketDark: 0xb23e12,
   shirt: 0xf2efe4,
   trousers: 0x2b3548,
   shoes: 0x1a1d24,
   skin: 0xc98b62,
-  cap: 0xe8e2d2,
-  capBrim: 0x2a6f8e,
+  cap: 0x1c1a18,
+  capBrim: 0x1c1a18,
   hair: 0x2a211c,
 };
 

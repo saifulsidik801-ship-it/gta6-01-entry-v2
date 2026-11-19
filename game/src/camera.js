@@ -93,6 +93,16 @@ export function buildCamera(camera, domElement) {
     update(0.016, target, sampleGround);
   }
 
+  function setDistance(v) {
+    if (!Number.isFinite(v)) return;
+    distance = Math.max(CAMERA.minDistance, Math.min(CAMERA.maxDistance, v));
+  }
+
+  function setPitch(v) {
+    if (!Number.isFinite(v)) return;
+    pitch = Math.max(CAMERA.minPitch, Math.min(CAMERA.maxPitch, v));
+  }
+
   function reset() {
     pitch = CAMERA.pitch;
     distance = CAMERA.distance;
@@ -107,6 +117,8 @@ export function buildCamera(camera, domElement) {
     applyOrbit,
     applyZoom,
     setShoulder,
+    setDistance,
+    setPitch,
     get yaw() {
       return yaw;
     },

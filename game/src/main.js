@@ -10,6 +10,8 @@ import { spawnParkedCars, Vehicle } from './vehicle.js';
 import { Traffic } from './traffic.js';
 import { Pedestrians } from './pedestrians.js';
 import { Police } from './police.js';
+import { PoliceHeli } from './heli.js';
+import { Radio } from './radio.js';
 import { Combat } from './combat.js';
 import { Effects } from './effects.js';
 import { Missions } from './missions.js';
@@ -74,6 +76,8 @@ const playerSnapshot = () => ({
 const effects = new Effects(scene);
 const combat = new Combat(scene, pedestrians, effects);
 const police = new Police(scene, world, playerSnapshot);
+// R9: police helicopter (reads the same player/wanted state).
+const heli = new PoliceHeli(scene);
 
 const playerColliders = [];
 const carObstacles = parkedCars.map((car) => ({ x: car.x, z: car.z }));
@@ -116,6 +120,8 @@ function setTimeOfDay(mode) {
 
 const save = new Save();
 const audio = new Audio();
+// R9: radio (needs the audio engine for playback; display works without it).
+const radio = new Radio({ audio });
 
 const missions = new Missions({
   player,
@@ -254,6 +260,8 @@ window.MARISOL = {
   hud,
   save,
   audio,
+  heli,
+  radio,
   setTimeOfDay,
   lights: { hemi, sun, ambient },
   get timeOfDay() {
@@ -465,6 +473,8 @@ function buildShotContext() {
     effects,
     missions,
     hud,
+    heli,
+    radio,
     config: { WORLD, SPAWN, SKY, CAMERA, PLAYER },
     setTimeOfDay,
     enterCar,
@@ -626,6 +636,14 @@ function buildHudSnapshot() {
     trafficPositions,
     district: districtNameAt(pos.x, pos.z),
     missions: missions.getMissions(),
+    // R9: heli + radio for the HUD panels.
+    heli: heli.visible
+      ? { visible: true, state: heli.state, dist: heli.distance }
+      : { visible: false, state: heli.state, dist: 0 },
+    heliPos: heli.visible
+      ? { x: heli.group.position.x, z: heli.group.position.z }
+      : null,
+    radio: radio.nowPlaying(),
   };
 }
 
@@ -848,6 +866,9 @@ function step(dt) {
   const snapshot = playerSnapshot();
   if (active) combat.update(dt, input, snapshot, police);
   police.update(dt);
+  // R9: heli follows the player + wanted level; radio advances its track.
+  heli.update(dt, snapshot.position, police.getWanted());
+  radio.update(dt);
   if (active) {
     updateCrime(dt);
     missions.update(dt);
@@ -923,6 +944,28 @@ window.addEventListener('keydown', (e) => {
     if (!driving) return;
     if (typeof audio.playHorn === 'function') audio.playHorn();
     else if (typeof audio.playPickup === 'function') audio.playPickup();
+  } else if (e.code === 'KeyQ') {
+    // R9 radio: next station.
+    if (!hud.started) return;
+    radio.nextStation(1);
+    const np = radio.nowPlaying();
+    hud.toast(np.station + ' ' + np.freq, 1.6);
+  } else if (e.code === 'KeyV') {
+    // R9 radio: play / pause.
+    if (!hud.started) return;
+    const playing = radio.toggle();
+    hud.toast(playing ? 'RADIO PLAYING' : 'RADIO PAUSED', 1.6);
+  } else if (e.code === 'KeyB') {
+    // R9 radio: next track.
+    if (!hud.started) return;
+    radio.nextTrack();
+    const np2 = radio.nowPlaying();
+    hud.toast('\u201C' + np2.title + '\u201D \u2014 ' + np2.artist, 1.8);
+  } else if (e.code === 'KeyU') {
+    // R9 garage: open / close the Hillside Garage screen.
+    if (!hud.started) return;
+    if (hud.garageOpen) hud.closeGarage();
+    else hud.openGarage(cash);
   }
 });
 

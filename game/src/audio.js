@@ -22,7 +22,7 @@ const TUNE = {
   padGain: 0.085,
   padCutoff: 760,
 
-  bpm: { day: 86, dusk: 78, night: 70 },
+  bpm: { day: 86, dusk: 78, night: 70, bay985: 112, vice1073: 96, onda911: 94 },
   bpmLift: 26,
   lookahead: 0.16,
   scheduleWindow: 0.2,
@@ -53,6 +53,25 @@ const CHORDS = {
     [48, [0, 3, 7, 10]],
     [43, [0, 4, 7, 11]],
     [50, [0, 3, 7, 10]],
+  ],
+  // R9 radio stations: same pad engine, different roots/tempo per station.
+  bay985: [
+    [53, [0, 4, 7, 11]],
+    [60, [0, 4, 7, 9]],
+    [57, [0, 3, 7, 10]],
+    [55, [0, 4, 7, 11]],
+  ],
+  vice1073: [
+    [45, [0, 3, 7, 10]],
+    [41, [0, 3, 7, 10]],
+    [48, [0, 3, 7, 10]],
+    [43, [0, 4, 7, 10]],
+  ],
+  onda911: [
+    [50, [0, 4, 7, 11]],
+    [55, [0, 4, 7, 9]],
+    [53, [0, 4, 7, 11]],
+    [48, [0, 3, 7, 10]],
   ],
 };
 
@@ -750,6 +769,12 @@ export class Audio {
       this.musicBus.gain.value = 0.9;
     }
     this._musicStep(m, ctx.currentTime);
+  }
+
+  // R9: public stop for the radio talk station (pauses the pad loop).
+  stopMusic() {
+    this._stopMusic();
+    return this;
   }
 
   _stopMusic() {

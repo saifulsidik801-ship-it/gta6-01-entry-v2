@@ -49,6 +49,93 @@ const POLICE_ROLES = [
   'SPOTLIGHT', 'ROADBLOCK', 'PURSUIT',
 ];
 
+// R9: flat-shaded 2D portraits for crew cards + dialog (the only place a
+// face appears — the 3D models stay faceless). One painter, two sizes.
+const PORTRAITS = {
+  Mira: { skin: '#d9a06f', hair: '#1c1a18', hairStyle: 'cap', shirt: '#e85d26' },
+  Lio: { skin: '#c98d63', hair: '#2a2119', hairStyle: 'short', shirt: '#2f7f96' },
+  Kiki: { skin: '#9c6b48', hair: '#1c1a18', hairStyle: 'ponytail', shirt: '#e8c86a' },
+  'Inez Voss': { skin: '#f1c9a5', hair: '#8a7355', hairStyle: 'bun', shirt: '#b4517a' },
+};
+
+function drawPortrait(canvas, spec) {
+  if (!canvas || !canvas.getContext) return;
+  const s = spec || PORTRAITS.Mira;
+  const size = canvas.width || 34;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const u = size / 34;
+  ctx.clearRect(0, 0, size, size);
+  // Shirt block at the bottom.
+  ctx.fillStyle = s.shirt;
+  ctx.fillRect(0, 26 * u, size, 8 * u);
+  // Face.
+  ctx.fillStyle = s.skin;
+  ctx.beginPath();
+  ctx.arc(17 * u, 17 * u, 10.5 * u, 0, Math.PI * 2);
+  ctx.fill();
+  // Hair silhouette (the identifier — cap / short / ponytail / bun).
+  ctx.fillStyle = s.hair;
+  if (s.hairStyle === 'cap') {
+    ctx.beginPath();
+    ctx.arc(17 * u, 13 * u, 10.5 * u, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(6.5 * u, 12 * u, 21 * u, 2.6 * u);
+  } else if (s.hairStyle === 'ponytail') {
+    ctx.beginPath();
+    ctx.arc(17 * u, 12 * u, 10.5 * u, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(24 * u, 12 * u, 4 * u, 14 * u);
+    ctx.beginPath();
+    ctx.arc(26 * u, 27 * u, 2.4 * u, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (s.hairStyle === 'bun') {
+    ctx.beginPath();
+    ctx.arc(17 * u, 12 * u, 10 * u, Math.PI, 0);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(17 * u, 4 * u, 4 * u, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.arc(17 * u, 12.5 * u, 10.5 * u, Math.PI, 0);
+    ctx.fill();
+  }
+  // Eyes + mouth.
+  ctx.fillStyle = '#1c1a18';
+  ctx.beginPath();
+  ctx.arc(13 * u, 17 * u, 1.3 * u, 0, Math.PI * 2);
+  ctx.arc(21 * u, 17 * u, 1.3 * u, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillRect(14.5 * u, 22.5 * u, 5 * u, 1.1 * u);
+}
+
+// R9: weapon slots (display data — ammo for the pistol slot is live).
+// Icons are plain two-letter codes (no emoji — headless Chrome has no emoji
+// font and would draw tofu boxes).
+const WEAPON_SLOTS = [
+  { n: 1, icon: 'FT', name: 'FISTS', ammo: '\u221E' },
+  { n: 2, icon: 'P9', name: 'PISTOL', ammo: null },
+  { n: 3, icon: 'SM', name: 'SMG', ammo: '30/60' },
+  { n: 4, icon: '12', name: '12G', ammo: '18' },
+  { n: 5, icon: 'AR', name: 'AR-9', ammo: null, locked: true },
+  { n: 6, icon: 'RP', name: 'RPG', ammo: null, locked: true },
+];
+
+// R9: garage upgrade list (Hillside Garage — fictional, prices in game $).
+const GARAGE_UPGRADES = [
+  { name: 'REPAIR', fx: 'Condition 84% \u2192 100%', price: '$450', status: 'OWNED' },
+  { name: 'RESPRAY', fx: 'Ganti warna cat (pilih warna)', price: '$800', status: '' },
+  { name: 'ENGINE TUNE', fx: 'Top speed +12%', price: '$1,200', status: 'LOCKED' },
+  { name: 'ARMOUR PLATING', fx: 'Armour +25', price: '$950', status: '' },
+  { name: 'NITRO', fx: 'Boost 3 detik', price: '$600', status: 'OWNED' },
+  { name: 'SUSPENSION', fx: 'Handling +15%', price: '$700', status: 'LOCKED' },
+  { name: 'BRAKES', fx: 'Jarak rem \u221220%', price: '$500', status: '' },
+  { name: 'WEAPON MOUNT', fx: 'Pasang senjata di mobil', price: '$1,500', status: 'LOCKED' },
+  { name: 'TURBO', fx: 'Acceleration +18%', price: '$1,100', status: 'LOCKED' },
+  { name: 'NEON KIT', fx: 'Lampu bawah mobil', price: '$350', status: '' },
+];
+
 const DISTRICTS = Array.isArray(CONFIG_DISTRICTS) && CONFIG_DISTRICTS.length
   ? CONFIG_DISTRICTS
   : [
@@ -199,16 +286,97 @@ const CSS = `
 .mb-police-row .d{color:#fff2dd;font-weight:700;}
 .mb-police-foot{margin-top:6px;font:600 9px/1.2 "Trebuchet MS","Segoe UI",sans-serif;
   letter-spacing:.14em;color:#7fd8d0;text-transform:uppercase;}
-.mb-crew{position:absolute;right:18px;top:180px;width:208px;display:none;flex-direction:column;gap:6px;z-index:5;}
+.mb-crew{position:absolute;right:18px;top:172px;width:208px;display:none;flex-direction:column;gap:5px;z-index:5;}
 .mb-crew.on{display:flex;}
-.mb-crew-head{font:700 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.22em;color:#7fd8d0;text-transform:uppercase;}
-.mb-crew-card{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:6px;
+.mb-crew-head{padding:5px 8px;border-radius:5px;background:rgba(9,16,24,.88);border:1px solid rgba(255,246,229,.16);
+  font:700 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.22em;color:#7fd8d0;text-transform:uppercase;}
+.mb-crew-face{flex:0 0 auto;width:24px;height:24px;border-radius:4px;border:1px solid rgba(255,246,229,.25);}
+/* R9: weapon slots — horizontal row, right column above the crew cards. */
+.mb-weapons{position:absolute;right:18px;top:118px;display:none;flex-direction:row;gap:4px;z-index:5;}
+.mb-weapons.on{display:flex;}
+.mb-wslot{width:32px;padding:4px 0 3px;border-radius:5px;background:rgba(9,16,24,.72);
+  border:1px solid rgba(255,246,229,.18);text-align:center;}
+.mb-wslot .n{font:700 8px/1 "Trebuchet MS","Segoe UI",sans-serif;color:#8fa0ab;}
+.mb-wslot .i{font:700 13px/1.2 "Trebuchet MS","Segoe UI",sans-serif;color:#fff2dd;}
+.mb-wslot .a{font:600 8px/1 "Trebuchet MS","Segoe UI",sans-serif;color:#7fd8d0;}
+.mb-wslot.active{border-color:#ffd166;background:rgba(60,44,10,.82);box-shadow:0 0 10px rgba(255,209,102,.35);}
+.mb-wslot.active .i{color:#ffd166;}
+.mb-wslot.locked{opacity:.55;}
+.mb-wslot.locked .i{font-size:8px;color:#8fa0ab;letter-spacing:.05em;}
+/* R9: radio line — sits above the big speed number, bottom right. */
+.mb-radio{position:absolute;right:170px;bottom:88px;display:none;text-align:right;z-index:5;
+  font:600 10px/1.4 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#ffe9c9;
+  text-shadow:0 1px 3px rgba(0,0,0,.8);white-space:nowrap;}
+.mb-radio.on{display:block;}
+.mb-radio .st{font-weight:700;}
+.mb-radio .bar{height:3px;margin-top:3px;border-radius:2px;background:rgba(255,246,229,.2);overflow:hidden;}
+.mb-radio .fill{height:100%;width:0%;}
+/* R9: air-unit chip under the wanted stars (top-right stack). */
+.mb-airunit{display:none;padding:4px 8px;border-radius:5px;background:rgba(9,16,24,.66);
+  border:1px solid rgba(127,216,208,.4);font:700 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;
+  letter-spacing:.14em;color:#7fd8d0;text-transform:uppercase;}
+.mb-airunit.on{display:block;}
+/* R9: garage screen — fullscreen overlay; the 3D car shows through the left. */
+.mb-garage{position:absolute;inset:0;display:none;z-index:6;pointer-events:none;}
+.mb-garage.on{display:block;}
+.mb-garage-top{position:absolute;left:0;right:0;top:0;height:52px;display:flex;align-items:center;gap:14px;
+  padding:0 18px;background:linear-gradient(180deg,rgba(8,14,20,.92),rgba(8,14,20,.55));}
+.mb-garage-name{font:700 20px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.14em;color:#ffc93c;
+  text-shadow:0 2px 10px rgba(0,0,0,.7);}
+.mb-garage-sub{font:600 10px/1.3 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.16em;color:#7fd8d0;text-transform:uppercase;}
+.mb-garage-cash{margin-left:auto;font:700 22px/1 "Trebuchet MS","Segoe UI",sans-serif;color:#3ddc5a;}
+.mb-garage-panel{position:absolute;right:16px;top:64px;width:352px;padding:12px 14px;border-radius:8px;
+  background:rgba(12,18,26,.94);border:1px solid rgba(255,246,229,.2);pointer-events:auto;}
+.mb-garage-panel h3{font:700 15px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.18em;color:#fff2dd;}
+.mb-garage-panel h3 span{color:#7fd8d0;font-size:10px;letter-spacing:.14em;}
+.mb-garage-row{display:flex;align-items:baseline;gap:8px;padding:5px 8px;margin-top:3px;border-radius:5px;
+  font:700 11px/1.3 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.08em;color:#f2e6d3;}
+.mb-garage-row.sel{background:rgba(255,201,60,.16);outline:1px solid rgba(255,201,60,.6);}
+.mb-garage-row .fx{flex:1;font:600 9px/1.3 "Trebuchet MS","Segoe UI",sans-serif;color:#a8b6bf;letter-spacing:.06em;}
+.mb-garage-row .pr{color:#3ddc5a;}
+.mb-garage-row .st-owned{color:#3ddc5a;}
+.mb-garage-row .st-locked{color:#e5484d;}
+.mb-garage-card{margin-top:10px;padding:10px 12px;border-radius:6px;background:rgba(255,246,229,.06);
+  border:1px solid rgba(255,246,229,.14);}
+.mb-garage-carcard{position:absolute;left:16px;bottom:56px;width:330px;margin-top:0;
+  background:rgba(12,18,26,.92);}
+.mb-garage-card .cn{font:700 14px/1.2 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#fff2dd;}
+.mb-garage-card .cc{font:600 9px/1.4 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.16em;color:#a8b6bf;}
+.mb-garage-bar{height:8px;margin-top:6px;border-radius:4px;background:rgba(255,246,229,.16);overflow:hidden;}
+.mb-garage-fill{height:100%;background:linear-gradient(90deg,#54d98c,#a8e05f);}
+.mb-garage-stat{display:flex;align-items:center;gap:8px;margin-top:5px;
+  font:600 9px/1.3 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.12em;color:#c9d4da;}
+.mb-garage-stat .sb{flex:1;height:5px;border-radius:3px;background:rgba(255,246,229,.16);overflow:hidden;}
+.mb-garage-stat .sf{height:100%;background:#35d0d8;}
+.mb-garage-foot{position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;gap:10px;
+  padding:0 18px;background:linear-gradient(0deg,rgba(8,14,20,.92),rgba(8,14,20,.4));}
+.mb-garage-btn{padding:8px 14px;border-radius:6px;background:rgba(255,246,229,.1);
+  border:1px solid rgba(255,246,229,.3);font:700 10px/1 "Trebuchet MS","Segoe UI",sans-serif;
+  letter-spacing:.14em;color:#fff2dd;}
+.mb-garage-btn.buy{background:linear-gradient(180deg,#54d98c,#2f9e57);border-color:#a8e05f;color:#0c1a10;}
+.mb-garage-btn.equip{background:linear-gradient(180deg,#ffb347,#e88a2c);border-color:#ffcf9b;color:#20160c;}
+/* R9: garage mode hides every gameplay HUD element. */
+.mb-garage-on .mb-police,.mb-garage-on .mb-crew,.mb-garage-on .mb-weapons,.mb-garage-on .mb-dialog,
+.mb-garage-on .mb-speed,.mb-garage-on .mb-radio,.mb-garage-on .mb-health,.mb-garage-on .mb-topright,
+.mb-garage-on #objective,.mb-garage-on #minimap,.mb-garage-on #turf-income{display:none !important;}
+.mb-garage-on #title{display:none !important;}
+/* R9: action popup for driving shots (DRIFT / NEAR MISS). */
+.mb-shot-popup{position:absolute;right:220px;top:200px;display:none;padding:7px 12px;border-radius:6px;
+  background:rgba(9,16,24,.78);border:1px solid rgba(255,209,102,.5);z-index:5;
+  font:700 13px/1.2 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.14em;color:#ffd166;}
+.mb-shot-popup.on{display:block;}
+/* R9 shot mode: bigger, brighter minimap. */
+.mb-shot #minimap{width:150px !important;height:150px !important;}
+/* R9 shot mode: the turf panel crowds the right column — hide it in shots. */
+.mb-shot .mb-turf{display:none !important;}
+canvas.mb-dialog-face{padding:0;background:none;border:1px solid rgba(255,246,229,.3);border-radius:5px;}
+.mb-crew-card{display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:6px;
   background:rgba(9,16,24,.66);border:1px solid rgba(255,246,229,.16);}
 .mb-crew-key{flex:0 0 auto;width:22px;height:22px;border-radius:4px;display:flex;align-items:center;justify-content:center;
   background:linear-gradient(180deg,#ffb347,#e88a2c);color:#20160c;font:700 11px/1 "Trebuchet MS","Segoe UI",sans-serif;}
 .mb-crew-name{font:700 10.5px/1.25 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#fff2dd;text-transform:uppercase;}
 .mb-crew-who{font:600 9px/1.3 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#a8b6bf;text-transform:uppercase;}
-.mb-dialog{position:absolute;left:50%;bottom:96px;transform:translateX(-50%);width:320px;display:none;
+.mb-dialog{position:absolute;left:50%;bottom:130px;transform:translateX(-50%);width:320px;display:none;
   padding:9px 12px;border-radius:6px;background:rgba(9,16,24,.72);border:1px solid rgba(255,246,229,.18);z-index:5;}
 .mb-dialog.on{display:flex;gap:10px;align-items:flex-start;}
 .mb-dialog-face{flex:0 0 auto;width:34px;height:34px;border-radius:5px;display:flex;align-items:center;justify-content:center;
@@ -588,9 +756,12 @@ export class HUD {
     this.el.turf.appendChild(pipRow);
     this.el.turf.appendChild(this.el.income);
 
+    this.el.airUnit = make('div', 'mb-airunit', 'AIR UNIT \u00B7 HELI 1 \u2014 TRACKING');
+
     top.appendChild(this.el.timeChip);
     top.appendChild(this.el.cash);
     top.appendChild(this.el.stars);
+    top.appendChild(this.el.airUnit);
     top.appendChild(this.el.turf);
     this.root.appendChild(top);
 
@@ -620,6 +791,23 @@ export class HUD {
     this.el.speed = speed;
     this.root.appendChild(speed);
 
+    // R9: radio now-playing line (above the speed number, bottom right).
+    const radio = make('div', 'mb-radio');
+    this.el.radioStation = make('div');
+    this.el.radioTrack = make('div');
+    const radioBar = make('div', 'bar');
+    this.el.radioFill = make('div', 'fill');
+    radioBar.appendChild(this.el.radioFill);
+    radio.appendChild(this.el.radioStation);
+    radio.appendChild(this.el.radioTrack);
+    radio.appendChild(radioBar);
+    this.el.radio = radio;
+    this.root.appendChild(radio);
+
+    // R9: action popup for driving shots.
+    this.el.shotPopup = make('div', 'mb-shot-popup', '');
+    this.root.appendChild(this.el.shotPopup);
+
     // R8 panels: police response (named units + live distance), crew ability
     // cards, and the dialog box. Built once, shown by updateShotPanels().
     const policePanel = make('div', 'mb-police');
@@ -638,24 +826,53 @@ export class HUD {
     const crew = make('div', 'mb-crew');
     crew.appendChild(make('div', 'mb-crew-head', 'Crew · Abilities'));
     const crewDefs = [
-      ['Z', 'Swap plates', 'Mira · Driver'],
-      ['X', 'Quick fix', 'Lio · Mechanic'],
-      ['C', 'Eyes out', 'Kiki · Lookout'],
+      ['Z', 'Swap plates', 'Mira · Driver', PORTRAITS.Mira],
+      ['X', 'Quick fix', 'Lio · Mechanic', PORTRAITS.Lio],
+      ['C', 'Eyes out', 'Kiki · Lookout', PORTRAITS.Kiki],
     ];
+    this.el.crewFaces = [];
     for (let i = 0; i < crewDefs.length; i++) {
       const card = make('div', 'mb-crew-card');
-      card.appendChild(make('div', 'mb-crew-key', crewDefs[i][0]));
+      const face = make('canvas', 'mb-crew-face');
+      face.width = 24;
+      face.height = 24;
+      drawPortrait(face, crewDefs[i][3]);
+      this.el.crewFaces.push(face);
+      card.appendChild(face);
       const mid = make('div');
       mid.appendChild(make('div', 'mb-crew-name', crewDefs[i][1]));
       mid.appendChild(make('div', 'mb-crew-who', crewDefs[i][2]));
       card.appendChild(mid);
+      const key = make('div', 'mb-crew-key', crewDefs[i][0]);
+      key.style.marginLeft = 'auto';
+      card.appendChild(key);
       crew.appendChild(card);
     }
     this.el.crew = crew;
     this.root.appendChild(crew);
 
+    // R9: weapon slots row (right column, above the crew cards).
+    const weapons = make('div', 'mb-weapons');
+    this.el.weaponSlots = [];
+    for (let i = 0; i < WEAPON_SLOTS.length; i++) {
+      const s = WEAPON_SLOTS[i];
+      const slot = make('div', 'mb-wslot' + (s.locked ? ' locked' : ''));
+      slot.appendChild(make('div', 'n', s.n));
+      slot.appendChild(make('div', 'i', s.locked ? 'LOCKED' : s.icon));
+      const ammoEl = make('div', 'a', s.locked ? '' : (s.ammo === null ? '' : s.ammo));
+      slot.appendChild(ammoEl);
+      weapons.appendChild(slot);
+      this.el.weaponSlots.push({ slot, ammoEl, def: s });
+    }
+    this.el.weapons = weapons;
+    this.root.appendChild(weapons);
+
     const dialog = make('div', 'mb-dialog');
-    this.el.dialogFace = make('div', 'mb-dialog-face', 'M');
+    const dialogFace = make('canvas', 'mb-dialog-face');
+    dialogFace.width = 34;
+    dialogFace.height = 34;
+    this.el.dialogFace = dialogFace;
+    drawPortrait(dialogFace, PORTRAITS.Mira);
     const dialogMid = make('div');
     this.el.dialogName = make('div', 'mb-dialog-name', '');
     this.el.dialogText = make('div', 'mb-dialog-text', '');
@@ -665,6 +882,9 @@ export class HUD {
     dialog.appendChild(dialogMid);
     this.el.dialog = dialog;
     this.root.appendChild(dialog);
+
+    // R9: garage screen (Hillside Garage) — fullscreen overlay.
+    this.buildGaragePanel();
 
     this.root.appendChild(make(
       'div',
@@ -1083,13 +1303,132 @@ export class HUD {
       text: String(text || ''),
     };
     if (this.el.dialogFace) {
-      this.el.dialogFace.textContent = (this.shotDialog.speaker || 'M').charAt(0);
+      const first = String(this.shotDialog.speaker || 'Mira').split(' ')[0];
+      drawPortrait(this.el.dialogFace, PORTRAITS[first] || PORTRAITS.Mira);
     }
     if (this.el.dialogName) {
       this.el.dialogName.textContent = this.shotDialog.speaker
         + (this.shotDialog.role ? '  ·  ' + this.shotDialog.role : '');
     }
     if (this.el.dialogText) this.el.dialogText.textContent = this.shotDialog.text;
+  }
+
+  // R9: garage screen (Hillside Garage). A fullscreen overlay; the 3D car
+  // shows through the left half, the upgrade panel fills the right.
+  buildGaragePanel() {
+    const wrap = make('div', 'mb-garage');
+    const top = make('div', 'mb-garage-top');
+    top.appendChild(make('span', 'mb-garage-name', 'HILLSIDE GARAGE'));
+    top.appendChild(make('span', 'mb-garage-sub', 'Spray & Tune \u00B7 Pilar Santos \u2014 \u201CYou break it, I bill it.\u201D'));
+    this.el.garageCash = make('span', 'mb-garage-cash', '$18,450');
+    top.appendChild(this.el.garageCash);
+    wrap.appendChild(top);
+
+    const panel = make('div', 'mb-garage-panel');
+    const head = make('h3', null, 'SPRAY & TUNE ');
+    head.appendChild(make('span', null, 'CAR UPGRADES'));
+    panel.appendChild(head);
+    for (let i = 0; i < GARAGE_UPGRADES.length; i++) {
+      const u = GARAGE_UPGRADES[i];
+      const row = make('div', 'mb-garage-row' + (i === 2 ? ' sel' : ''));
+      row.appendChild(make('span', null, u.name));
+      row.appendChild(make('span', 'fx', u.fx));
+      if (u.status === 'OWNED') row.appendChild(make('span', 'st-owned', '\u2713 OWNED'));
+      else if (u.status === 'LOCKED') {
+        row.appendChild(make('span', 'st-locked', 'LOCKED \u00B7 LV 6'));
+        row.appendChild(make('span', 'pr', u.price));
+      } else row.appendChild(make('span', 'pr', u.price));
+      panel.appendChild(row);
+    }
+    wrap.appendChild(panel);
+
+    // Car card sits bottom-left, over the 3D car (like the winners' garage).
+    const card = make('div', 'mb-garage-card mb-garage-carcard');
+    card.appendChild(make('div', 'cn', 'KITE COUPE'));
+    card.appendChild(make('div', 'cc', 'CLASS: SPORT \u00B7 CONDITION 84%'));
+    const bar = make('div', 'mb-garage-bar');
+    const fill = make('div', 'mb-garage-fill');
+    fill.style.width = '84%';
+    bar.appendChild(fill);
+    card.appendChild(bar);
+    const stats = [
+      ['TOP SPEED', 78, '186 KM/H'],
+      ['ACCELERATION', 72, '7.2 S 0\u2013100'],
+      ['ARMOUR', 60, '60/100'],
+      ['HANDLING', 81, '81/100'],
+    ];
+    for (let i = 0; i < stats.length; i++) {
+      const st = make('div', 'mb-garage-stat');
+      st.appendChild(make('span', null, stats[i][0]));
+      const sb = make('div', 'sb');
+      const sf = make('div', 'sf');
+      sf.style.width = stats[i][1] + '%';
+      sb.appendChild(sf);
+      st.appendChild(sb);
+      st.appendChild(make('span', null, stats[i][2]));
+      card.appendChild(st);
+    }
+    wrap.appendChild(card);
+
+    const foot = make('div', 'mb-garage-foot');
+    foot.appendChild(make('span', 'mb-garage-btn', '\u25C0 BACK'));
+    foot.appendChild(make('span', 'mb-garage-btn', 'REPAIR ALL \u2014 $450'));
+    const buy = make('span', 'mb-garage-btn buy', 'BUY');
+    const equip = make('span', 'mb-garage-btn equip', 'EQUIP');
+    foot.appendChild(buy);
+    foot.appendChild(equip);
+    wrap.appendChild(foot);
+
+    this.el.garage = wrap;
+    this.root.appendChild(wrap);
+  }
+
+  openGarage(cash) {
+    if (this.el.garageCash && typeof cash === 'number') {
+      this.el.garageCash.textContent = money(cash);
+    }
+    if (this.el.garage) this.el.garage.classList.add('on');
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.classList.add('mb-garage-on');
+    }
+    this.garageOpen = true;
+  }
+
+  closeGarage() {
+    if (this.el.garage) this.el.garage.classList.remove('on');
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.classList.remove('mb-garage-on');
+    }
+    this.garageOpen = false;
+  }
+
+  // R9: staged mission objective for screenshot scenes (overrides the live
+  // mission objective in applySnapshot while set).
+  setShotObjective(title, text, progress, ratio) {
+    this.shotObjective = {
+      title: String(title || ''),
+      text: String(text || ''),
+      progress: String(progress || ''),
+      ratio: typeof ratio === 'number' ? ratio : -1,
+    };
+  }
+
+  clearShotObjective() {
+    this.shotObjective = null;
+  }
+
+  // R9: staged radio line for screenshot scenes.
+  setShotRadio(station, track, progress) {
+    this.shotRadio = { station, track, progress: typeof progress === 'number' ? progress : 0 };
+  }
+
+  // R9: staged action popup (DRIFT / NEAR MISS) for driving shots.
+  setShotPopup(text) {
+    this.shotPopup = String(text || '');
+    if (this.el.shotPopup) {
+      this.el.shotPopup.textContent = this.shotPopup;
+      this.el.shotPopup.classList.toggle('on', !!this.shotPopup);
+    }
   }
 
   updateShotPanels(snap) {
@@ -1107,16 +1446,25 @@ export class HUD {
     }
     units.sort((a, b) => a.d - b.d);
     const shown = units.slice(0, 6);
+    // R9: heli row always on top of the police panel when the air unit is up.
+    const heli = snap && snap.heli && snap.heli.visible ? snap.heli : null;
     if (this.el.police) {
-      const show = shown.length > 0;
+      const show = shown.length > 0 || !!heli;
       this.el.police.classList.toggle('on', show);
       if (show) {
-        const key = shown.map((u) => u.i + ':' + u.d).join('|');
+        const key = (heli ? 'H:' + heli.dist + '|' : '') + shown.map((u) => u.i + ':' + u.d).join('|');
         if (key !== this.cache.policeKey) {
           this.cache.policeKey = key;
           this.setText('policeCount', this.el.policeHeadCount,
-            shown.length + (shown.length === 1 ? ' unit' : ' units'));
+            (shown.length + (heli ? 1 : 0)) + ' units');
           const frag = document.createDocumentFragment();
+          if (heli) {
+            const row = make('div', 'mb-police-row');
+            row.appendChild(make('span', 'u', 'HELI 1'));
+            row.appendChild(make('span', 'r', 'SPOTLIGHT'));
+            row.appendChild(make('span', 'd', heli.dist + ' m'));
+            frag.appendChild(row);
+          }
           for (let k = 0; k < shown.length; k++) {
             const row = make('div', 'mb-police-row');
             row.appendChild(make('span', 'u', POLICE_NAMES[shown[k].i % POLICE_NAMES.length]));
@@ -1125,14 +1473,55 @@ export class HUD {
             frag.appendChild(row);
           }
           this.el.policeRows.replaceChildren(frag);
+          const closest = heli ? Math.min(heli.dist, shown.length ? shown[0].d : 999) : shown[0].d;
           this.setText('policeFoot', this.el.policeFoot,
-            shown[0].d <= 25
-              ? 'In sight · closest ' + shown[0].d + ' m'
-              : 'Responding · closest ' + shown[0].d + ' m');
+            closest <= 25
+              ? 'In sight \u00B7 closest ' + closest + ' m'
+              : 'Responding \u00B7 closest ' + closest + ' m');
         }
       }
     }
+    if (this.el.airUnit) {
+      this.el.airUnit.classList.toggle('on', !!heli);
+      if (heli) {
+        this.setText('airUnit', this.el.airUnit,
+          'AIR UNIT \u00B7 HELI 1 \u2014 ' + (heli.state === 'arriving' ? 'INBOUND' : 'TRACKING'));
+      }
+    }
     if (this.el.crew) this.el.crew.classList.toggle('on', shot);
+    if (this.el.weapons) {
+      this.el.weapons.classList.toggle('on', shot);
+      if (shot && this.el.weaponSlots) {
+        for (let i = 0; i < this.el.weaponSlots.length; i++) {
+          const w = this.el.weaponSlots[i];
+          w.slot.classList.toggle('active', i === 1);
+          if (w.def.ammo === null && !w.def.locked && snap && typeof snap.ammo === 'number') {
+            const label = w.def.name === 'PISTOL' ? Math.round(snap.ammo) + '' : '';
+            if (label && w.ammoEl.textContent !== label) w.ammoEl.textContent = label;
+          }
+        }
+      }
+    }
+    if (this.el.radio) {
+      const np = (snap && snap.radio) || this.shotRadio || null;
+      const showRadio = !!(shot && np);
+      this.el.radio.classList.toggle('on', showRadio);
+      if (showRadio) {
+        const stationName = np.station || np.stationId || '';
+        const trackTitle = np.title || np.track || '';
+        const artist = np.artist || '';
+        const key = stationName + '|' + trackTitle + '|' + Math.floor((np.progress || 0) * 20);
+        if (key !== this.cache.radioKey) {
+          this.cache.radioKey = key;
+          const stationLine = '\u266A ' + stationName + ' \u2014 ' + (np.playing ? 'PLAYING' : 'PAUSED');
+          this.setText('radioStation', this.el.radioStation, stationLine);
+          this.setText('radioTrack', this.el.radioTrack, '\u201C' + trackTitle + '\u201D' + (artist ? ' \u2014 ' + artist : ''));
+          this.el.radioStation.style.color = np.color || '#ffe9c9';
+          this.el.radioFill.style.background = np.color || '#ffd166';
+        }
+        this.el.radioFill.style.width = Math.round((np.progress || 0) * 100) + '%';
+      }
+    }
     if (this.el.dialog) {
       this.el.dialog.classList.toggle('on', !!(shot && this.shotDialog && this.shotDialog.text));
     }
@@ -1492,6 +1881,25 @@ export class HUD {
         }
       }
 
+      // R9: heli icon — a white/cyan rotor cross, bigger than ground dots.
+      const heli = snap.heliPos;
+      if (heli && typeof heli.x === 'number' && typeof heli.z === 'number') {
+        const hx = this.mapX(heli.x);
+        const hy = this.mapY(heli.z);
+        ctx.beginPath();
+        ctx.arc(hx, hy, 4.4, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(127,216,208,0.9)';
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(hx - 3, hy);
+        ctx.lineTo(hx + 3, hy);
+        ctx.moveTo(hx, hy - 3);
+        ctx.lineTo(hx, hy + 3);
+        ctx.stroke();
+      }
+
       const markers = drawMarkerList(snap);
       const px = snap.playerPos ? snap.playerPos.x : 0;
       const pz = snap.playerPos ? snap.playerPos.z : 0;
@@ -1746,7 +2154,15 @@ export class HUD {
       }
     }
 
-    const obj = readObjective(snap.objective, snap.district);
+    // R9: a staged shot objective overrides the live mission objective.
+    const obj = this.shotObjective
+      ? {
+        title: this.shotObjective.title,
+        text: this.shotObjective.text,
+        progress: this.shotObjective.progress,
+        ratio: this.shotObjective.ratio,
+      }
+      : readObjective(snap.objective, snap.district);
     const objKey = obj.title + '|' + obj.text + '|' + obj.progress;
     if (objKey !== this.cache.objKey) {
       this.cache.objKey = objKey;
