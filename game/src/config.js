@@ -2,6 +2,8 @@
 
 export const SEED = 0x4d415249;
 
+export const SAVE_KEY = 'marisol-bay-save-v1';
+
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function rng() {

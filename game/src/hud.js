@@ -1,551 +1,697 @@
-// MARISOL BAY - HUD: wanted stars, cash, health, ammo, speed, mission text, turf
-// bars and a live bright street-map minimap drawn on the existing #minimap canvas.
+// MARISOL BAY - HUD: wanted stars, cash, vitals, turf, objective, minimap,
+// toasts, job list, start screen and pause menu. DOM + canvas 2D only.
 
-import { DISTRICTS, WORLD } from './config.js';
+import { WORLD, DISTRICTS } from './config.js';
 
-const MAP_PAD = 8;
-const MAP_RATE = 10;
-const STYLE_ID = 'marisol-hud-style';
+const MM_SIZE = 132;
+const MM_COLORS = ['#6d9184', '#4f7f8c', '#8a7658', '#5a7392', '#8a6250', '#6b7d4e'];
 
-function el(tag, parent, cls, text) {
-  const node = document.createElement(tag);
-  if (cls) node.className = cls;
-  if (text !== undefined) node.textContent = text;
-  if (parent) parent.appendChild(node);
-  return node;
+const CONTROLS = [
+  ['WASD', 'MOVE / DRIVE'],
+  ['SHIFT', 'RUN'],
+  ['SPACE', 'JUMP / HANDBRAKE'],
+  ['MOUSE DRAG', 'LOOK / AIM'],
+  ['E', 'ENTER / EXIT CAR'],
+  ['F / CLICK', 'FIGHT / SHOOT'],
+  ['J', 'NEXT JOB'],
+  ['H', 'JOB LIST'],
+  ['P', 'PAUSE'],
+  ['M', 'MUTE'],
+];
+
+function makeEl(tag, className, parent) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (parent) parent.appendChild(el);
+  return el;
 }
 
-function style() {
-  if (document.getElementById(STYLE_ID)) return;
-  const css = `
-    #hud .mb-panel { position: absolute; pointer-events: none; }
-    #hud .mb-topleft { left: 24px; top: 20px; display: flex; flex-direction: column; gap: 7px; }
-    #hud .mb-cash { font: 700 26px/1 "Trebuchet MS","Segoe UI",sans-serif; color: #9ff2a8;
-      text-shadow: 0 2px 8px rgba(0,0,0,0.7), 0 0 14px rgba(80,220,120,0.35); letter-spacing: 0.04em; }
-    #hud .mb-sub { font: 600 11px/1.3 "Trebuchet MS","Segoe UI",sans-serif; letter-spacing: 0.16em;
-      text-transform: uppercase; color: #ffd9a4; opacity: 0.85; }
-    #hud .mb-healthwrap { width: 190px; height: 11px; border-radius: 6px;
-      background: rgba(6,12,18,0.6); border: 1px solid rgba(255,246,229,0.28); overflow: hidden; }
-    #hud .mb-health { height: 100%; width: 100%; border-radius: 5px;
-      background: linear-gradient(90deg,#39c46b,#8ee06a); transition: width 0.15s linear; }
-    #hud .mb-health.low { background: linear-gradient(90deg,#d63b2f,#ff7a4d); }
-    #hud .mb-row { display: flex; align-items: center; gap: 10px; }
-    #hud .mb-ammo { font: 700 13px/1 "Trebuchet MS","Segoe UI",sans-serif; color: #ffe9c9;
-      letter-spacing: 0.08em; }
-    #hud .mb-speed { position: absolute; right: 232px; bottom: 26px; text-align: right;
-      font: 700 24px/1 "Trebuchet MS","Segoe UI",sans-serif; color: #f4f7ff;
-      text-shadow: 0 2px 10px rgba(0,0,0,0.7); letter-spacing: 0.02em; }
-    #hud .mb-speed small { font-size: 12px; letter-spacing: 0.18em; opacity: 0.75; }
-    #hud .mb-turf { position: absolute; right: 18px; bottom: 236px; width: 190px;
-      display: flex; flex-direction: column; gap: 3px; }
-    #hud .mb-turftitle { font: 700 10px/1.2 "Trebuchet MS","Segoe UI",sans-serif;
-      letter-spacing: 0.16em; text-transform: uppercase; color: #ffcf9b; opacity: 0.9;
-      margin-bottom: 2px; }
-    #hud .mb-bar { position: relative; height: 7px; border-radius: 4px;
-      background: rgba(8,14,20,0.55); border: 1px solid rgba(255,246,229,0.16); overflow: hidden; }
-    #hud .mb-bar i { position: absolute; inset: 0 auto 0 0; border-radius: 3px;
-      background: linear-gradient(90deg,#2f8f9c,#63d6b0); }
-    #hud .mb-bar.taken i { background: linear-gradient(90deg,#ffc14d,#ff8a4d); }
-    #hud .mb-barlabel { font: 600 9px/1.1 "Trebuchet MS","Segoe UI",sans-serif;
-      letter-spacing: 0.1em; text-transform: uppercase; color: #dfe8ef; opacity: 0.72; }
-    #hud .mb-toast { position: absolute; left: 50%; top: 74px; transform: translateX(-50%);
-      padding: 9px 20px; border-radius: 8px; background: rgba(10,18,26,0.68);
-      border: 1px solid rgba(255,193,77,0.4); color: #ffe9c9;
-      font: 700 14px/1.2 "Trebuchet MS","Segoe UI",sans-serif; letter-spacing: 0.1em;
-      text-transform: uppercase; opacity: 0; transition: opacity 0.35s ease; max-width: 70vw;
-      text-align: center; }
-    #hud .mb-toast.on { opacity: 1; }
-    #objective { left: 26px; top: 138px; max-width: 460px; }
-    #objective .mb-objtitle { color: #ffd166; }
-    #minimap { width: 132px; height: 132px; }
-    #hud .mb-start { position: absolute; inset: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; background: rgba(6,11,17,0.72);
-      pointer-events: auto; z-index: 8; text-align: center; }
-    #start.mb-start { position: fixed; inset: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; pointer-events: auto; z-index: 8;
-      text-align: center; }
-    #hud .mb-start.hidden, #hud .mb-pause.hidden, #start.mb-start.hidden { display: none; }
-    .mb-logo { font: 700 62px/1 "Trebuchet MS","Segoe UI",sans-serif; letter-spacing: 0.2em;
-      color: #fff6e5; text-shadow: 0 4px 30px rgba(255,128,52,0.55), 0 2px 3px rgba(0,0,0,0.7);
-      margin-bottom: 6px; }
-    .mb-tagline { font: 600 12px/1.4 "Trebuchet MS","Segoe UI",sans-serif;
-      letter-spacing: 0.3em; color: #ffcf9b; text-transform: uppercase; margin-bottom: 26px; }
-    .mb-play { padding: 13px 34px; border-radius: 9px; cursor: pointer;
-      border: 1px solid rgba(255,193,77,0.65); background: rgba(255,150,60,0.16);
-      color: #fff1d8; font: 700 15px/1 "Trebuchet MS","Segoe UI",sans-serif;
-      letter-spacing: 0.22em; text-transform: uppercase; }
-    .mb-play:hover { background: rgba(255,150,60,0.3); }
-    .mb-controls { margin-top: 22px; font: 500 12px/1.9 "Trebuchet MS","Segoe UI",sans-serif;
-      color: #dfe8ef; opacity: 0.85; letter-spacing: 0.04em; }
-    .mb-controls b { color: #ffd166; font-weight: 700; }
-    .mb-note { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
-      max-width: 640px; font: 400 11px/1.6 "Trebuchet MS","Segoe UI",sans-serif;
-      color: #9fb2c0; letter-spacing: 0.03em; text-align: center; padding: 0 18px; }
-    #hud .mb-pause { position: absolute; inset: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; background: rgba(6,11,17,0.62);
-      pointer-events: auto; z-index: 7; }
-    #hud .mb-pause h2 { font: 700 34px/1 "Trebuchet MS","Segoe UI",sans-serif;
-      letter-spacing: 0.24em; color: #fff6e5; margin-bottom: 12px; }
-    #hud .mb-pause p { font: 500 13px/1.6 "Trebuchet MS","Segoe UI",sans-serif;
-      color: #cfe0ea; letter-spacing: 0.08em; }
-    #hud .mb-missions { position: absolute; right: 18px; top: 60px; width: 250px;
-      display: none; flex-direction: column; gap: 4px; }
-    #hud .mb-missions.on { display: flex; }
-    #hud .mb-mtitle { font: 700 11px/1.2 "Trebuchet MS","Segoe UI",sans-serif;
-      letter-spacing: 0.18em; text-transform: uppercase; color: #ffcf9b; margin-bottom: 4px; }
-    #hud .mb-mission { display: flex; justify-content: space-between; gap: 8px;
-      font: 500 10px/1.35 "Trebuchet MS","Segoe UI",sans-serif; color: #dfe8ef;
-      background: rgba(8,14,20,0.5); border: 1px solid rgba(255,246,229,0.12);
-      border-radius: 5px; padding: 4px 7px; opacity: 0.85; }
-    #hud .mb-mission.done { color: #9ff2a8; }
-    #hud .mb-mission.locked { opacity: 0.4; }
-    #hud .mb-mission b { color: #ffd166; font-weight: 600; }
-  `;
-  const node = document.createElement('style');
-  node.id = STYLE_ID;
-  node.textContent = css;
-  document.head.appendChild(node);
+function fmtMoney(value) {
+  const n = Math.round(Number.isFinite(value) ? value : 0);
+  const sign = n < 0 ? '-' : '';
+  return sign + '$' + Math.abs(n).toLocaleString('en-US');
+}
+
+function statusLabel(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'complete' || s === 'completed' || s === 'done') return 'DONE';
+  if (s === 'active' || s === 'in-progress' || s === 'inprogress') return 'ACTIVE';
+  if (s === 'available' || s === 'open' || s === 'ready') return 'OPEN';
+  if (s === 'locked') return 'LOCKED';
+  return s ? s.toUpperCase() : '';
 }
 
 export class HUD {
-  constructor(opts = {}) {
+  constructor({ onStart, onPauseToggle } = {}) {
+    this.onStart = typeof onStart === 'function' ? onStart : () => {};
+    this.onPauseToggle = typeof onPauseToggle === 'function' ? onPauseToggle : () => {};
+
     this.root = document.getElementById('hud');
-    if (!this.root) {
-      this.root = document.createElement('div');
-      this.root.id = 'hud';
-      document.body.appendChild(this.root);
-    }
-    style();
-    this.onStart = opts.onStart || null;
-    this.onPauseToggle = opts.onPauseToggle || null;
-    this.playing = false;
-    this.paused = false;
-    this.started = false;
-
-    this.objNode = document.getElementById('objective');
-    this.startNode = document.getElementById('start');
-    if (this.startNode) {
-      this.startNode.innerHTML = '';
-      this.startNode.style.display = 'none';
-    }
-
-    this.minimap = document.getElementById('minimap');
-    this.map = null;
-    this.mapCtx = null;
-    this.mapClock = 0;
-    this.mapDirty = true;
+    this.startOverlay = document.getElementById('start');
+    this.objectiveEl = document.getElementById('objective');
+    this.canvas = document.getElementById('minimap');
     this.mapVisible = true;
 
-    this.buildTopLeft();
-    this.buildTurf();
-    this.buildSpeed();
-    this.buildMap();
-    this.buildOverlays();
-    this.buildToast();
-    this.buildMissions();
+    this.started = false;
+    this.playing = false;
+    this.paused = false;
+    this.missionsVisible = false;
 
-    this.lastObj = null;
-    this.lastCash = null;
-    this.lastHealth = null;
-    this.lastAmmo = null;
-    this.lastWanted = null;
-  }
-
-  buildTopLeft() {
-    const left = el('div', this.root, 'mb-panel mb-topleft');
-    this.cashNode = el('div', left, 'mb-cash', '$0');
-    this.districtNode = el('div', left, 'mb-sub', 'BEACHFRONT');
-
-    const healthRow = el('div', left, 'mb-row');
-    const hw = el('div', healthRow, 'mb-healthwrap');
-    this.healthBar = el('div', hw, 'mb-health');
-    this.ammoNode = el('div', healthRow, 'mb-ammo', '12 / 12');
-
-    this.starsNode = el('div', left, 'mb-sub mb-stars', '');
-    this.starsNode.style.fontSize = '17px';
-    this.starsNode.style.letterSpacing = '0.22em';
-    this.starsNode.style.color = '#ffd166';
-  }
-
-  buildTurf() {
-    this.turfBox = el('div', this.root, 'mb-panel mb-turf');
-    this.turfTitle = el('div', this.turfBox, 'mb-turftitle', 'TURF 0/6');
-    this.turfBars = [];
-    for (let i = 0; i < DISTRICTS.length; i++) {
-      const d = DISTRICTS[i];
-      const label = el('div', this.turfBox, 'mb-barlabel', d.name);
-      const bar = el('div', this.turfBox, 'mb-bar');
-      const fill = el('i', bar);
-      fill.style.width = '0%';
-      this.turfBars.push({ key: d.key, bar, fill, label, value: -1 });
-    }
-  }
-
-  buildSpeed() {
-    this.speedNode = el('div', this.root, 'mb-speed');
-    this.speedNode.innerHTML = '0 <small>KM/H</small>';
-  }
-
-  buildMap() {
-    const size = 206;
-    let canvas = this.minimap;
-    if (!canvas || canvas.tagName !== 'CANVAS') {
-      canvas = document.createElement('canvas');
-      canvas.id = 'minimap';
-    }
-    canvas.width = size;
-    canvas.height = size;
-    canvas.style.position = 'fixed';
-    canvas.style.right = '18px';
-    canvas.style.bottom = '18px';
-    canvas.style.left = '';
-    canvas.style.top = '';
-    canvas.style.width = size + 'px';
-    canvas.style.height = size + 'px';
-    canvas.style.borderRadius = '10px';
-    canvas.style.background = '#e8eef1';
-    canvas.style.border = '1px solid rgba(255,246,229,0.35)';
-    canvas.style.boxShadow = '0 6px 26px rgba(0,0,0,0.5)';
-    canvas.style.zIndex = '5';
-    if (!canvas.parentNode) document.body.appendChild(canvas);
-
-    this.map = canvas;
-    this.minimap = canvas;
-    this.mapCtx = canvas.getContext('2d');
-    this.mapSize = size;
-  }
-
-  buildOverlays() {
-    const host = this.startNode || this.root;
-    if (this.startNode) {
-      this.startNode.style.display = 'flex';
-      this.startNode.style.position = 'fixed';
-      this.startNode.style.inset = '0';
-      this.startNode.style.zIndex = '8';
-      this.startNode.style.background = 'rgba(6,11,17,0.72)';
-      this.startNode.style.flexDirection = 'column';
-      this.startNode.style.alignItems = 'center';
-      this.startNode.style.justifyContent = 'center';
-      this.startNode.style.textAlign = 'center';
-    }
-    this.startOverlay = this.startNode || el('div', this.root, 'mb-start');
-    if (this.startNode) this.startOverlay.classList.add('mb-start');
-    el('div', host, 'mb-logo', 'MARISOL BAY');
-    el('div', host, 'mb-tagline', 'A sun-soaked coastal city');
-    const btn = el('button', host, 'mb-play', 'CLICK TO PLAY');
-    btn.addEventListener('click', () => this.begin());
-    el('div', host, 'mb-controls').innerHTML =
-      '<b>WASD</b> move / drive &nbsp; <b>Shift</b> run &nbsp; <b>Space</b> handbrake / jump<br>' +
-      '<b>E</b> enter / exit car &nbsp; <b>F</b> punch &nbsp; <b>G</b> / click shoot<br>' +
-      '<b>J</b> start next mission &nbsp; <b>H</b> job list &nbsp; <b>M</b> mute &nbsp; <b>Esc / P</b> pause';
-    el('div', host, 'mb-note',
-      'An original fan-style open-world driving game built for the make.fun bounty. ' +
-      'All geometry, city layout and sound are procedurally generated at runtime \u2014 no external assets.');
-
-    this.pauseOverlay = el('div', this.root, 'mb-pause hidden');
-    el('h2', this.pauseOverlay, 'PAUSED');
-    el('p', this.pauseOverlay, '', 'Press Esc or P to resume');
-
-    this.missionsBox = el('div', this.root, 'mb-panel mb-missions');
-    el('div', this.missionsBox, 'mb-mtitle', 'STORY JOBS');
-  }
-
-  buildToast() {
-    this.toastNode = el('div', this.root, 'mb-toast');
+    this.time = 0;
     this.toastTimer = 0;
+    this._text = Object.create(null);
+    this._turfSig = '';
+    this._missionsSig = '';
+    this._hp = -1;
+    this._speedOn = null;
+    this.ctx2d = null;
+
+    this._distRects = [];
+    this._gridX = [];
+    this._gridZ = [];
+    this._buildMapGeometry();
+
+    this._injectStyle();
+    this._buildHud();
+    this._buildStart();
+    this._bindEvents();
   }
 
-  buildMissions() {
-    this.missionRowNodes = [];
+  // ---------------------------------------------------------------- geometry
+  _buildMapGeometry() {
+    const worldW = WORLD.maxX - WORLD.minX;
+    const worldH = WORLD.maxZ - WORLD.minZ;
+    this._sx = MM_SIZE / (worldW || 1);
+    this._sz = MM_SIZE / (worldH || 1);
+
+    this._distRects = DISTRICTS.map((d, i) => {
+      const w = d.size.w * this._sx;
+      const h = d.size.d * this._sz;
+      return {
+        x: this._mx(d.center.x) - w / 2,
+        y: this._my(d.center.z) - h / 2,
+        w,
+        h,
+        color: MM_COLORS[i % MM_COLORS.length],
+      };
+    });
+
+    const gx = WORLD.gridLinesX || [];
+    for (let i = 0; i < gx.length; i++) this._gridX.push(this._mx(gx[i]));
+    const gz = WORLD.gridLinesZ || [];
+    for (let i = 0; i < gz.length; i++) this._gridZ.push(this._my(gz[i]));
   }
 
-  setMissions(list) {
-    if (!list || !this.missionsBox) return;
-    if (this.missionRowNodes.length === list.length) {
-      for (let i = 0; i < list.length; i++) {
-        const row = this.missionRowNodes[i];
-        const m = list[i];
-        const cls = 'mb-mission' + (m.completed ? ' done' : '') + (m.locked ? ' locked' : '');
-        if (row.className !== cls) row.className = cls;
-        const text = (i + 1) + '. ' + m.title + (m.completed ? ' \u2713' : m.locked ? ' \u2014' : '');
-        if (row.firstChild && row.firstChild.textContent !== text) row.firstChild.textContent = text;
+  _mx(x) {
+    return (x - WORLD.minX) * this._sx;
+  }
+
+  _my(z) {
+    return (z - WORLD.minZ) * this._sz;
+  }
+
+  // ------------------------------------------------------------------- style
+  _injectStyle() {
+    if (document.getElementById('msb-hud-style')) return;
+    const style = document.createElement('style');
+    style.id = 'msb-hud-style';
+    style.textContent = `
+      #hud .msb-panel {
+        background: rgba(10, 18, 26, 0.58);
+        border: 1px solid rgba(255, 246, 229, 0.18);
+        border-radius: 8px;
+        color: #ffe9c9;
+        font: 600 12px/1.35 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.1em;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+        padding: 6px 10px;
       }
-      return;
+      #hud .msb-topright {
+        position: absolute; right: 18px; top: 16px;
+        display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+      }
+      #hud .msb-stars { display: flex; gap: 3px; font-size: 20px; line-height: 1; }
+      #hud .msb-star { color: rgba(255, 246, 229, 0.16); transition: color 120ms linear; }
+      #hud .msb-star.on {
+        color: #ffd166;
+        text-shadow: 0 0 8px rgba(255, 190, 72, 0.75), 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      #hud .msb-cash {
+        font: 700 21px/1.2 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.05em; color: #ffe9c9;
+      }
+      #hud .msb-turf { display: flex; gap: 4px; align-items: center; }
+      #hud .msb-turf-label { opacity: 0.7; font-size: 10px; letter-spacing: 0.14em; }
+      #hud .msb-pip {
+        width: 12px; height: 12px; border-radius: 2px;
+        background: rgba(255, 246, 229, 0.12);
+        border: 1px solid rgba(255, 246, 229, 0.28);
+      }
+      #hud .msb-pip.on { background: #ffd166; border-color: #ffd166; }
+      #hud .msb-pip.finale { width: 16px; border-color: rgba(255, 209, 102, 0.6); }
+      #hud .msb-pip.finale.on { background: #ff9d4d; border-color: #ff9d4d; }
+      #hud .msb-vitals {
+        position: absolute; left: 28px; bottom: 112px;
+        display: flex; align-items: center; gap: 10px;
+      }
+      #hud .msb-hp {
+        width: 148px; height: 10px; border-radius: 5px;
+        background: rgba(8, 14, 20, 0.7);
+        border: 1px solid rgba(255, 246, 229, 0.22);
+        overflow: hidden;
+      }
+      #hud .msb-hpfill {
+        height: 100%; width: 100%; border-radius: 4px;
+        background: linear-gradient(90deg, #7fd6a1, #b9e88f);
+        transition: width 120ms linear, background 200ms linear;
+      }
+      #hud .msb-hpfill.low { background: linear-gradient(90deg, #de5b4a, #ff9d4d); }
+      #hud .msb-ammo { font-size: 12px; color: #ffe9c9; letter-spacing: 0.12em; }
+      #hud .msb-speed {
+        position: absolute; right: 18px; bottom: 162px;
+        text-align: right; min-width: 92px;
+        font: 700 17px/1.2 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.08em;
+      }
+      #hud .msb-speed small { display: block; font-size: 9px; opacity: 0.65; letter-spacing: 0.18em; }
+      #hud .msb-toast {
+        position: absolute; left: 50%; top: 68px; transform: translateX(-50%);
+        max-width: 620px; text-align: center; display: none;
+        font: 700 13px/1.4 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.14em; text-transform: uppercase;
+        color: #fff3dd;
+        background: rgba(10, 18, 26, 0.72);
+        border: 1px solid rgba(255, 209, 102, 0.4);
+        border-radius: 7px; padding: 8px 16px;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+        white-space: nowrap;
+      }
+      #hud .msb-pause {
+        position: absolute; inset: 0; display: none;
+        align-items: center; justify-content: center;
+        background: rgba(6, 11, 16, 0.66);
+        pointer-events: auto;
+      }
+      #hud .msb-pause-card {
+        width: 360px; padding: 24px 26px; border-radius: 12px;
+        background: rgba(12, 21, 29, 0.92);
+        border: 1px solid rgba(255, 246, 229, 0.2);
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+        text-align: center;
+      }
+      #hud .msb-pause-title {
+        font: 700 22px/1.2 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.24em; color: #ffe9c9; margin-bottom: 4px;
+      }
+      #hud .msb-pause-sub {
+        font: 400 11px/1.4 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.14em; color: #ffcf9b; opacity: 0.8; margin-bottom: 16px;
+      }
+      #hud .msb-keys {
+        display: grid; grid-template-columns: 92px 1fr; gap: 6px 10px;
+        text-align: left; font-size: 11px; letter-spacing: 0.08em;
+        color: #efe4d2; margin-bottom: 18px;
+      }
+      #hud .msb-keys b { color: #ffd166; font-weight: 700; }
+      #hud .msb-btn {
+        pointer-events: auto; cursor: pointer;
+        font: 700 13px/1 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.2em; text-transform: uppercase;
+        color: #10171f; background: #ffd166;
+        border: 0; border-radius: 6px; padding: 12px 26px;
+        box-shadow: 0 6px 22px rgba(255, 186, 64, 0.28);
+      }
+      #hud .msb-btn:hover { background: #ffe9a8; }
+      #hud .msb-missions {
+        position: absolute; left: 28px; top: 76px; width: 306px;
+        display: none; pointer-events: auto;
+        max-height: 52vh; overflow: auto;
+      }
+      #hud .msb-missions h3 {
+        font: 700 12px/1 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.24em; color: #ffd166; margin-bottom: 8px;
+      }
+      #hud .msb-job {
+        display: flex; justify-content: space-between; gap: 10px;
+        padding: 4px 0; border-top: 1px solid rgba(255, 246, 229, 0.1);
+        font-size: 11px; letter-spacing: 0.05em;
+      }
+      #hud .msb-job:first-of-type { border-top: 0; }
+      #hud .msb-job span { opacity: 0.7; white-space: nowrap; }
+      #hud .msb-job em { font-style: normal; color: #ffcf9b; white-space: nowrap; }
+      #hud .msb-job.done em { color: #8fd8a4; }
+      #hud .msb-job.active em { color: #ffd166; }
+      #hud .msb-job.locked { opacity: 0.5; }
+
+      #start.msb-start { pointer-events: auto; }
+      #start .msb-start-card {
+        width: min(640px, 86vw); text-align: center;
+        padding: 34px 42px; border-radius: 16px;
+        background: rgba(10, 18, 26, 0.72);
+        border: 1px solid rgba(255, 246, 229, 0.22);
+        box-shadow: 0 26px 90px rgba(0, 0, 0, 0.6);
+        color: #f6efe2;
+      }
+      #start .msb-start-title {
+        font: 700 52px/1 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.24em; color: #fff6e5;
+        text-shadow: 0 2px 24px rgba(255, 128, 52, 0.55), 0 2px 3px rgba(0, 0, 0, 0.6);
+        margin-bottom: 10px;
+      }
+      #start .msb-start-sub {
+        font: 600 13px/1.4 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.16em; text-transform: uppercase; color: #ffcf9b;
+        margin-bottom: 14px;
+      }
+      #start .msb-start-note {
+        font: 400 11px/1.6 "Trebuchet MS", "Segoe UI", sans-serif;
+        color: #d8cbb6; opacity: 0.85; margin-bottom: 20px;
+      }
+      #start .msb-keys {
+        display: grid; grid-template-columns: 116px 1fr; gap: 6px 12px;
+        text-align: left; font-size: 11px; letter-spacing: 0.08em;
+        color: #efe4d2; margin: 0 auto 22px; max-width: 420px;
+      }
+      #start .msb-keys b { color: #ffd166; font-weight: 700; }
+      #start .msb-btn {
+        pointer-events: auto; cursor: pointer;
+        font: 700 14px/1 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.24em; text-transform: uppercase;
+        color: #10171f; background: #ffd166;
+        border: 0; border-radius: 7px; padding: 14px 40px;
+        box-shadow: 0 8px 30px rgba(255, 186, 64, 0.3);
+      }
+      #start .msb-btn:hover { background: #ffe9a8; }
+      #start .msb-start-hint {
+        margin-top: 12px; font: 400 10px/1.4 "Trebuchet MS", "Segoe UI", sans-serif;
+        letter-spacing: 0.16em; color: #b9c4c0; opacity: 0.75;
+      }
+      #start.hidden { display: none !important; }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  // --------------------------------------------------------------------- DOM
+  _buildHud() {
+    if (!this.root) return;
+    const root = this.root;
+
+    const topRight = makeEl('div', 'msb-topright', root);
+
+    this.starsEl = makeEl('div', 'msb-stars', topRight);
+    this._starEls = [];
+    for (let i = 0; i < 5; i++) {
+      const star = makeEl('span', 'msb-star', this.starsEl);
+      star.textContent = '\u2605';
+      this._starEls.push(star);
     }
-    for (const row of this.missionRowNodes) this.missionsBox.removeChild(row);
-    this.missionRowNodes = [];
-    for (let i = 0; i < list.length; i++) {
-      const m = list[i];
-      const row = el('div', this.missionsBox,
-        'mb-mission' + (m.completed ? ' done' : '') + (m.locked ? ' locked' : ''));
-      el('span', row, '', (i + 1) + '. ' + m.title +
-        (m.completed ? ' \u2713' : m.locked ? ' \u2014' : ''));
-      el('b', row, '', '$' + m.reward);
-      this.missionRowNodes.push(row);
+
+    this.cashEl = makeEl('div', 'msb-cash', topRight);
+    this.cashEl.textContent = fmtMoney(0);
+
+    const turfPanel = makeEl('div', 'msb-panel msb-turf', topRight);
+    const turfLabel = makeEl('span', 'msb-turf-label', turfPanel);
+    turfLabel.textContent = 'TURF';
+    this._turfPips = [];
+    for (let i = 0; i < 6; i++) this._turfPips.push(makeEl('span', 'msb-pip', turfPanel));
+    this._turfPips.push(makeEl('span', 'msb-pip finale', turfPanel));
+
+    const vitals = makeEl('div', 'msb-vitals', root);
+    const hp = makeEl('div', 'msb-hp', vitals);
+    this.hpFill = makeEl('div', 'msb-hpfill', hp);
+    this.ammoEl = makeEl('div', 'msb-ammo', vitals);
+    this.ammoEl.textContent = 'AMMO 0';
+
+    this.speedEl = makeEl('div', 'msb-panel msb-speed', root);
+    this.speedEl.style.display = 'none';
+    this.speedVal = makeEl('div', '', this.speedEl);
+    const speedUnit = makeEl('small', '', this.speedEl);
+    speedUnit.textContent = 'KM/H';
+
+    this.toastEl = makeEl('div', 'msb-toast', root);
+
+    this.pauseEl = makeEl('div', 'msb-pause', root);
+    const card = makeEl('div', 'msb-pause-card', this.pauseEl);
+    const pTitle = makeEl('div', 'msb-pause-title', card);
+    pTitle.textContent = 'PAUSED';
+    const pSub = makeEl('div', 'msb-pause-sub', card);
+    pSub.textContent = 'MARISOL BAY \u2014 MILO KADE';
+    const keys = makeEl('div', 'msb-keys', card);
+    for (let i = 0; i < CONTROLS.length; i++) {
+      const label = makeEl('b', '', keys);
+      label.textContent = CONTROLS[i][0];
+      const desc = makeEl('span', '', keys);
+      desc.textContent = CONTROLS[i][1];
+    }
+    this.resumeBtn = makeEl('button', 'msb-btn', card);
+    this.resumeBtn.type = 'button';
+    this.resumeBtn.textContent = 'RESUME';
+
+    this.missionsEl = makeEl('div', 'msb-panel msb-missions', root);
+    const mTitle = makeEl('h3', '', this.missionsEl);
+    mTitle.textContent = 'JOBS';
+    this.jobsEl = makeEl('div', '', this.missionsEl);
+
+    if (this.canvas) {
+      this.ctx2d = this.canvas.getContext('2d');
+      this.canvas.style.display = 'block';
     }
   }
 
-  toggleMissions() {
-    if (!this.missionsBox) return false;
-    this.missionsBox.classList.toggle('on');
-    return this.missionsBox.classList.contains('on');
+  _buildStart() {
+    const overlay = this.startOverlay;
+    if (!overlay) return;
+    overlay.innerHTML = '';
+    overlay.classList.add('msb-start');
+    overlay.style.display = 'flex';
+
+    const card = makeEl('div', 'msb-start-card', overlay);
+    const title = makeEl('div', 'msb-start-title', card);
+    title.textContent = 'MARISOL BAY';
+    const sub = makeEl('div', 'msb-start-sub', card);
+    sub.textContent = 'Take the city, district by district';
+    const note = makeEl('div', 'msb-start-note', card);
+    note.textContent = 'An original fan-style open-world game built by an AI agent for make.fun \u2014 no Rockstar assets.';
+
+    const keys = makeEl('div', 'msb-keys', card);
+    for (let i = 0; i < CONTROLS.length; i++) {
+      const label = makeEl('b', '', keys);
+      label.textContent = CONTROLS[i][0];
+      const desc = makeEl('span', '', keys);
+      desc.textContent = CONTROLS[i][1];
+    }
+
+    this.startBtn = makeEl('button', 'msb-btn', card);
+    this.startBtn.type = 'button';
+    this.startBtn.textContent = 'START';
+
+    const hint = makeEl('div', 'msb-start-hint', card);
+    hint.textContent = 'OR PRESS ENTER';
   }
 
-  begin() {
-    if (this.started) return;
+  _bindEvents() {
+    if (this.startBtn) {
+      this.startBtn.addEventListener('click', (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        this._start();
+      });
+    }
+    if (this.resumeBtn) {
+      this.resumeBtn.addEventListener('click', (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        this.onPauseToggle();
+      });
+    }
+    window.addEventListener('keydown', (e) => {
+      if (this.started) return;
+      if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+        e.preventDefault();
+        this._start();
+      }
+    });
+  }
+
+  _hideStart() {
+    if (!this.startOverlay) return;
+    this.startOverlay.classList.add('hidden');
+    this.startOverlay.style.display = 'none';
+  }
+
+  _start() {
+    const wasStarted = this.started;
     this.started = true;
     this.playing = true;
     this.paused = false;
-    this.startOverlay.classList.add('hidden');
-    this.startOverlay.style.display = 'none';
-    this.pauseOverlay.classList.add('hidden');
-    if (typeof this.onStart === 'function') this.onStart();
+    this._hideStart();
+    this._pauseShown = false;
+    if (this.pauseEl) this.pauseEl.style.display = 'none';
+    if (!wasStarted) this.onStart();
   }
 
-  setPaused(on) {
-    this.paused = !!on;
-    if (!this.pauseOverlay) return;
-    this.pauseOverlay.classList.toggle('hidden', !this.paused);
+  // ------------------------------------------------------------------ public
+  toast(text, seconds) {
+    if (!this.toastEl) return;
+    const msg = String(text == null ? '' : text);
+    const dur = Number.isFinite(seconds) ? seconds : 2.5;
+    this.toastEl.textContent = msg;
+    this.toastEl.style.display = msg ? 'block' : 'none';
+    this.toastTimer = msg ? Math.max(0.2, dur) : 0;
+    if (!msg) this._text.toast = '';
   }
 
-  toast(text, seconds = 4) {
-    if (!this.toastNode) return;
-    this.toastNode.textContent = text;
-    this.toastNode.classList.add('on');
-    this.toastTimer = seconds;
+  setPaused(value) {
+    this.paused = !!value;
+    if (this.pauseEl) {
+      this._pauseShown = this.paused;
+      this.pauseEl.style.display = this.paused ? 'flex' : 'none';
+    }
   }
 
-  setMinimap(on) {
-    this.mapVisible = !!on;
-    if (this.map) this.map.style.display = this.mapVisible ? 'block' : 'none';
-    if (this.turfBox) this.turfBox.style.display = this.mapVisible ? 'flex' : 'none';
-    this.mapDirty = true;
+  setMinimap(value) {
+    this.mapVisible = !!value;
+    if (this.canvas) this.canvas.style.display = this.mapVisible ? 'block' : 'none';
   }
 
-  // ----------------------------------------------------------------- update
+  toggleMissions() {
+    this.missionsVisible = !this.missionsVisible;
+    if (!this.missionsEl) return;
+    this.missionsEl.style.display = this.missionsVisible ? 'block' : 'none';
+    if (this.missionsVisible) this._missionsSig = '';
+  }
+
   update(dt, snapshot) {
-    const s = snapshot || {};
-    const step = dt > 0 ? Math.min(dt, 0.25) : 0;
+    const step = Number.isFinite(dt) ? dt : 0;
+    this.time += step;
 
     if (this.toastTimer > 0) {
       this.toastTimer -= step;
-      if (this.toastTimer <= 0 && this.toastNode) this.toastNode.classList.remove('on');
-    }
-
-    const cash = Math.round(s.cash || 0);
-    if (cash !== this.lastCash) {
-      this.lastCash = cash;
-      this.cashNode.textContent = '$' + cash.toLocaleString('en-US');
-    }
-
-    const health = Math.max(0, Math.min(100, s.health === undefined ? 100 : s.health));
-    const hp = Math.round(health);
-    if (hp !== this.lastHealth) {
-      this.lastHealth = hp;
-      this.healthBar.style.width = hp + '%';
-      this.healthBar.classList.toggle('low', hp < 34);
-    }
-
-    const ammo = s.ammo === undefined ? 0 : s.ammo;
-    if (ammo !== this.lastAmmo) {
-      this.lastAmmo = ammo;
-      this.ammoNode.textContent = ammo + ' / 12';
-    }
-
-    const stars = Math.max(0, Math.min(5, s.wanted || 0));
-    if (stars !== this.lastWanted) {
-      this.lastWanted = stars;
-      this.starsNode.textContent = '\u2605'.repeat(stars) + '\u2606'.repeat(5 - stars);
-      this.starsNode.style.color = stars >= 4 ? '#ff6b5a' : '#ffd166';
-      this.starsNode.style.opacity = stars > 0 ? '1' : '0.35';
-    }
-
-    if (s.driving) {
-      const kmh = Math.round(Math.abs(s.speed || 0) * 3.6);
-      if (this.speedNode.textContent.indexOf(String(kmh) + ' ') !== 0) {
-        this.speedNode.innerHTML = kmh + ' <small>KM/H</small>';
+      if (this.toastTimer <= 0) {
+        this.toastTimer = 0;
+        if (this.toastEl) this.toastEl.style.display = 'none';
       }
-      this.speedNode.style.display = 'block';
+    }
+
+    if (this.pauseEl && this._pauseShown !== this.paused) {
+      this._pauseShown = this.paused;
+      this.pauseEl.style.display = this.paused ? 'flex' : 'none';
+    }
+
+    if (!snapshot) return;
+
+    this._renderWanted(snapshot.wanted);
+    this._renderCash(snapshot.cash);
+    this._renderVitals(snapshot.health, snapshot.ammo);
+    this._renderSpeed(snapshot.speed, snapshot.driving);
+    this._renderTurf(snapshot.turf, snapshot.districtsTaken);
+    this._renderObjective(snapshot.objective, snapshot.district);
+
+    if (this.missionsVisible) this._renderMissions(snapshot.missions);
+    if (this.mapVisible) this._drawMinimap(snapshot);
+  }
+
+  // ----------------------------------------------------------------- render
+  _renderWanted(wanted) {
+    const n = Math.max(0, Math.min(5, Math.round(Number(wanted) || 0)));
+    if (this._text.wanted === n) return;
+    this._text.wanted = n;
+    for (let i = 0; i < this._starEls.length; i++) {
+      this._starEls[i].classList.toggle('on', i < n);
+    }
+  }
+
+  _renderCash(cash) {
+    const text = fmtMoney(cash);
+    if (this._text.cash === text) return;
+    this._text.cash = text;
+    if (this.cashEl) this.cashEl.textContent = text;
+  }
+
+  _renderVitals(health, ammo) {
+    const hp = Math.max(0, Math.min(100, Number(health) || 0));
+    const pct = Math.round(hp);
+    if (this._hp !== pct) {
+      this._hp = pct;
+      if (this.hpFill) {
+        this.hpFill.style.width = pct + '%';
+        this.hpFill.classList.toggle('low', pct <= 30);
+      }
+    }
+    const ammoText = 'AMMO ' + Math.max(0, Math.round(Number(ammo) || 0));
+    if (this._text.ammo !== ammoText) {
+      this._text.ammo = ammoText;
+      if (this.ammoEl) this.ammoEl.textContent = ammoText;
+    }
+  }
+
+  _renderSpeed(speed, driving) {
+    const on = !!driving;
+    if (this._speedOn !== on) {
+      this._speedOn = on;
+      if (this.speedEl) this.speedEl.style.display = on ? 'block' : 'none';
+      if (!on) this._text.speed = '';
+    }
+    if (!on) return;
+    const kmh = Math.round(Math.abs(Number(speed) || 0) * 3.6);
+    if (this._text.speed === kmh) return;
+    this._text.speed = kmh;
+    if (this.speedVal) this.speedVal.textContent = kmh;
+  }
+
+  _renderTurf(turf, districtsTaken) {
+    let sig = '';
+    const pips = this._turfPips;
+    if (turf && Array.isArray(turf.districts)) {
+      for (let i = 0; i < turf.districts.length && i < 6; i++) {
+        sig += turf.districts[i] && turf.districts[i].taken ? '1' : '0';
+      }
+      for (let i = (turf.districts.length || 0); i < 6; i++) sig += '0';
+      sig += turf.finale ? '1' : '0';
     } else {
-      this.speedNode.style.display = 'none';
+      const taken = Math.max(0, Math.min(6, Math.round(Number(districtsTaken) || 0)));
+      for (let i = 0; i < 6; i++) sig += i < taken ? '1' : '0';
+      sig += '0';
     }
-
-    if (s.district && this.districtNode.textContent !== s.district.toUpperCase()) {
-      this.districtNode.textContent = s.district.toUpperCase();
-    }
-
-    const objective = s.objective || '';
-    if (this.objNode && objective !== this.lastObj) {
-      this.lastObj = objective;
-      this.objNode.textContent = objective;
-    }
-
-    this.updateTurf(s.turf, s.districtsTaken);
-    if (s.missions) this.setMissions(s.missions);
-
-    this.mapClock += step;
-    if (this.mapVisible && (this.mapDirty || this.mapClock >= 1 / MAP_RATE)) {
-      this.mapClock = 0;
-      this.mapDirty = false;
-      this.drawMap(s);
+    if (this._turfSig === sig) return;
+    this._turfSig = sig;
+    for (let i = 0; i < pips.length && i < sig.length; i++) {
+      pips[i].classList.toggle('on', sig.charAt(i) === '1');
     }
   }
 
-  updateTurf(turf, takenCount) {
-    if (!turf) return;
-    let count = takenCount || 0;
-    for (let i = 0; i < this.turfBars.length; i++) {
-      const entry = this.turfBars[i];
-      const value = Math.round(turf[entry.key] || 0);
-      if (value !== entry.value) {
-        entry.value = value;
-        entry.fill.style.width = value + '%';
-        entry.bar.classList.toggle('taken', value >= 100);
-      }
+  _renderObjective(objective, district) {
+    let text = objective ? String(objective) : '';
+    if (!text) {
+      const place = district ? String(district) : '';
+      text = place ? place + ' \u2014 PRESS J FOR THE NEXT JOB' : 'PRESS J FOR THE NEXT JOB';
     }
-    const text = 'TURF ' + count + '/' + DISTRICTS.length;
-    if (this.turfTitle.textContent !== text) this.turfTitle.textContent = text;
+    if (this._text.objective === text) return;
+    this._text.objective = text;
+    if (this.objectiveEl) this.objectiveEl.textContent = text;
   }
 
-  // ----------------------------------------------------------------- minimap
-  drawMap(s) {
-    const ctx = this.mapCtx;
+  _renderMissions(missions) {
+    const list = Array.isArray(missions) ? missions : [];
+    let sig = '';
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i] || {};
+      sig += (m.id || '') + '|' + (m.status || '') + '|' + (m.title || '') + ';';
+    }
+    if (this._missionsSig === sig) return;
+    this._missionsSig = sig;
+
+    if (!this.jobsEl) return;
+    this.jobsEl.textContent = '';
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i] || {};
+      const status = statusLabel(m.status);
+      const row = makeEl('div', 'msb-job', this.jobsEl);
+      if (status === 'DONE') row.classList.add('done');
+      else if (status === 'ACTIVE') row.classList.add('active');
+      else if (status === 'LOCKED') row.classList.add('locked');
+      const name = makeEl('div', '', row);
+      name.textContent = m.title ? String(m.title) : 'Untitled job';
+      const tag = makeEl('em', '', row);
+      tag.textContent = status;
+    }
+    if (!list.length) {
+      const empty = makeEl('div', 'msb-job', this.jobsEl);
+      const name = makeEl('div', '', empty);
+      name.textContent = 'No jobs on the board';
+    }
+  }
+
+  // ---------------------------------------------------------------- minimap
+  _drawMinimap(snapshot) {
+    const ctx = this.ctx2d;
     if (!ctx) return;
-    const size = this.mapSize;
-    const pad = MAP_PAD;
-    const span = size - pad * 2;
-    const worldW = WORLD.maxX - WORLD.minX;
-    const worldH = WORLD.maxZ - WORLD.minZ;
-    const sx = span / worldW;
-    const sz = span / worldH;
-    const scale = Math.min(sx, sz);
-    const offX = pad + (span - worldW * scale) / 2;
-    const offZ = pad + (span - worldH * scale) / 2;
 
-    const toX = (x) => offX + (x - WORLD.minX) * scale;
-    const toY = (z) => offZ + (z - WORLD.minZ) * scale;
+    ctx.clearRect(0, 0, MM_SIZE, MM_SIZE);
+    ctx.fillStyle = 'rgba(9, 16, 23, 0.82)';
+    ctx.fillRect(0, 0, MM_SIZE, MM_SIZE);
 
-    ctx.clearRect(0, 0, size, size);
-
-    ctx.fillStyle = '#e8eef1';
-    ctx.fillRect(0, 0, size, size);
-
-    ctx.fillStyle = '#cbd9dd';
-    ctx.fillRect(toX(WORLD.landEdgeX - 2), 0, Math.max(0, toX(WORLD.minX) - toX(WORLD.landEdgeX - 2)), size);
-    ctx.fillStyle = '#a8d4e2';
-    ctx.fillRect(0, 0, Math.max(0, toX(WORLD.landEdgeX - 2)), size);
-
-    for (let i = 0; i < DISTRICTS.length; i++) {
-      const d = DISTRICTS[i];
-      const x0 = toX(d.center.x - d.size.w / 2);
-      const z0 = toY(d.center.z - d.size.d / 2);
-      const x1 = toX(d.center.x + d.size.w / 2);
-      const z1 = toY(d.center.z + d.size.d / 2);
-      const taken = s.turf && (s.turf[d.key] || 0) >= 100;
-      ctx.fillStyle = taken ? 'rgba(255,176,94,0.26)' : 'rgba(120,150,160,0.16)';
-      ctx.fillRect(x0, z0, x1 - x0, z1 - z0);
-      ctx.strokeStyle = taken ? 'rgba(255,150,70,0.65)' : 'rgba(90,120,132,0.32)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x0 + 0.5, z0 + 0.5, x1 - x0 - 1, z1 - z0 - 1);
+    for (let i = 0; i < this._distRects.length; i++) {
+      const r = this._distRects[i];
+      ctx.globalAlpha = 0.42;
+      ctx.fillStyle = r.color;
+      ctx.fillRect(r.x, r.y, r.w, r.h);
     }
+    ctx.globalAlpha = 1;
 
-    const drawRoads = () => {
-      ctx.beginPath();
-      for (let i = 0; i < WORLD.gridLinesX.length; i++) {
-        const x = toX(WORLD.gridLinesX[i]);
-        ctx.moveTo(x, toY(WORLD.minZ + 4));
-        ctx.lineTo(x, toY(WORLD.maxZ - 4));
-      }
-      for (let i = 0; i < WORLD.gridLinesZ.length; i++) {
-        const y = toY(WORLD.gridLinesZ[i]);
-        ctx.moveTo(toX(WORLD.gridLinesX[0] - 18), y);
-        ctx.lineTo(toX(WORLD.maxX - 4), y);
-      }
-      ctx.stroke();
-    };
-
-    ctx.strokeStyle = 'rgba(116,140,150,0.55)';
-    const roadPx = Math.max(2.6, WORLD.roadWidth * scale);
-    ctx.lineCap = 'butt';
-    ctx.lineWidth = roadPx + 1.8;
-    drawRoads();
-
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = roadPx;
-    drawRoads();
-
-    ctx.strokeStyle = 'rgba(196,214,220,0.9)';
-    ctx.lineWidth = Math.max(0.6, roadPx * 0.18);
-    ctx.setLineDash([3, 4]);
-    drawRoads();
-    ctx.setLineDash([]);
-
-    const traffic = s.trafficPositions || [];
-    ctx.fillStyle = 'rgba(70,96,112,0.72)';
-    for (let i = 0; i < traffic.length; i++) {
-      const t = traffic[i];
-      ctx.beginPath();
-      ctx.arc(toX(t.x), toY(t.z), 1.7, 0, Math.PI * 2);
-      ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 246, 229, 0.16)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < this._gridX.length; i++) {
+      const x = Math.round(this._gridX[i]) + 0.5;
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, MM_SIZE);
     }
-
-    const police = s.policePositions || [];
-    for (let i = 0; i < police.length; i++) {
-      const p = police[i];
-      ctx.fillStyle = i % 2 === 0 ? '#e03b3b' : '#2f6dff';
-      ctx.beginPath();
-      ctx.arc(toX(p.x), toY(p.z), 2.8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
+    for (let i = 0; i < this._gridZ.length; i++) {
+      const y = Math.round(this._gridZ[i]) + 0.5;
+      ctx.moveTo(0, y);
+      ctx.lineTo(MM_SIZE, y);
     }
+    ctx.stroke();
 
-    if (s.missionMarker) {
-      const mx = toX(s.missionMarker.x);
-      const my = toY(s.missionMarker.z);
-      const pulse = 5 + Math.sin(Date.now() / 260) * 1.4;
-      ctx.fillStyle = '#ffb020';
-      ctx.strokeStyle = '#7a4400';
-      ctx.lineWidth = 1.4;
+    if (snapshot.missionMarker) {
+      const mx = this._mx(snapshot.missionMarker.x);
+      const my = this._my(snapshot.missionMarker.z);
+      const pulse = 0.6 + 0.4 * Math.sin(this.time * 4);
+      const size = 4.5 + pulse * 2;
+      ctx.save();
+      ctx.globalAlpha = 0.4 + pulse * 0.55;
+      ctx.fillStyle = '#ffd166';
       ctx.beginPath();
-      ctx.moveTo(mx, my - pulse - 2);
-      ctx.lineTo(mx + pulse, my + pulse);
-      ctx.lineTo(mx - pulse, my + pulse);
+      ctx.moveTo(mx, my - size);
+      ctx.lineTo(mx + size, my);
+      ctx.lineTo(mx, my + size);
+      ctx.lineTo(mx - size, my);
       ctx.closePath();
       ctx.fill();
-      ctx.stroke();
+      ctx.restore();
     }
 
-    const pp = s.playerPos || { x: 0, z: 0 };
-    const px = toX(pp.x);
-    const py = toY(pp.z);
-    const heading = s.heading || 0;
+    const traffic = snapshot.trafficPositions;
+    if (Array.isArray(traffic)) {
+      ctx.fillStyle = 'rgba(216, 226, 230, 0.55)';
+      for (let i = 0; i < traffic.length; i++) {
+        const p = traffic[i];
+        if (!p) continue;
+        ctx.fillRect(this._mx(p.x) - 1, this._my(p.z) - 1, 2, 2);
+      }
+    }
+
+    const police = snapshot.policePositions;
+    if (Array.isArray(police)) {
+      ctx.fillStyle = '#ff4b3e';
+      for (let i = 0; i < police.length; i++) {
+        const p = police[i];
+        if (!p) continue;
+        const x = this._mx(p.x);
+        const y = this._my(p.z);
+        ctx.beginPath();
+        ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    const pos = snapshot.playerPos || { x: 0, z: 0 };
+    const px = this._mx(pos.x);
+    const py = this._my(pos.z);
     ctx.save();
     ctx.translate(px, py);
-    ctx.rotate(-heading);
-    ctx.fillStyle = '#1f8ea8';
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1.6;
+    ctx.rotate(-(Number(snapshot.heading) || 0));
+    ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.moveTo(0, -7.5);
-    ctx.lineTo(5.4, 6);
-    ctx.lineTo(0, 3.2);
-    ctx.lineTo(-5.4, 6);
+    ctx.moveTo(0, 6.5);
+    ctx.lineTo(-4.2, -4.6);
+    ctx.lineTo(0, -2.2);
+    ctx.lineTo(4.2, -4.6);
     ctx.closePath();
     ctx.fill();
-    ctx.stroke();
     ctx.restore();
 
-    ctx.fillStyle = '#22303c';
-    ctx.font = '700 10px "Trebuchet MS", "Segoe UI", sans-serif';
-    ctx.fillText('N', size - 16, 15);
-    ctx.beginPath();
-    ctx.fillStyle = '#22303c';
-    ctx.moveTo(size - 12, 19);
-    ctx.lineTo(size - 15, 26);
-    ctx.lineTo(size - 9, 26);
-    ctx.closePath();
-    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 246, 229, 0.28)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, MM_SIZE - 1, MM_SIZE - 1);
   }
 }

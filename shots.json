@@ -17,6 +17,6 @@
   {
     "name": "04-mission-night-turf.png",
     "query": "?shot=04-mission-night-turf",
-    "description": "Night turf takeover in the port district: muzzle flashes, police response and the mission objective overlay."
+    "description": "Night turf takeover in the port district: muzzle flashes, police response, the mission objective overlay and the turf takeover progress bar filling as the district falls."
   }
 ]

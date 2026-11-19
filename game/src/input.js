@@ -156,6 +156,11 @@ export function buildInput(domElement) {
     if (!v) onBlur();
   }
 
+  function isDown(code) {
+    const name = KEY_MAP[code];
+    return name ? !!keys[name] : false;
+  }
+
   function dispose() {
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
@@ -174,6 +179,7 @@ export function buildInput(domElement) {
     consumeMouse,
     consumePress,
     setEnabled,
+    isDown,
     dispose,
     get dragging() {
       return mouse.dragging;

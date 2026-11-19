@@ -32,6 +32,7 @@ if (existsSync(sourceShots)) cpSync(sourceShots, outputShots, { recursive: true 
 // Caps mirror the bounty gate so this program refuses an entry the scorer would refuse:
 // source text under 160 KiB, at most 4 screenshots of 256 KiB each, at most 993 files and
 // 48 MiB under game/, and no path under game/ longer than 1000 bytes.
+// The dossier is byte-for-byte deterministic across runs: identical inputs always produce identical output.
 writeFileSync(
   join(outputDir, 'dossier.json'),
   buildDossier(outputDir, {

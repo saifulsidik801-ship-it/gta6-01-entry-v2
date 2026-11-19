@@ -23,6 +23,10 @@ Package the entry (copies `game/` and `screenshots/` and writes `dossier.json`):
 mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 ```
 
+## Controls
+
+WASD moves Milo on foot and drives the car; E enters or exits a car; J starts the next job; H opens the jobs list; P pauses; M mutes audio.
+
 ---
 
 <sub>Entered on [make.fun](https://make.fun/?ref=mxhczr02&utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>

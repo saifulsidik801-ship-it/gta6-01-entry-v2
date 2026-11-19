@@ -1,970 +1,966 @@
-// MARISOL BAY - missions, side activities, district turf and collectibles.
-// The whole story spine lives in the data tables below; the runtime is a small
-// stage machine so the judge can read the arc without hunting through logic.
+// MARISOL BAY - turf spine: six district story jobs, the finale and side work.
 
 import * as THREE from 'three';
-import { DISTRICTS, WORLD } from './config.js';
+import { WORLD, DISTRICTS } from './config.js';
 
-const MARKER_RADIUS = 6.5;
-const TURF_INCOME = 1.15;
-const COLLECT_REWARD = 150;
-const TURF_GAIN_COLLECT = 25;
-const TURF_GAIN_MISSION = 60;
-const TURF_GAIN_ACTIVITY = 35;
-const TURF_GAIN_COMBAT = 8;
-const TURF_PUSH_RATE = 0.9;
+const STASH_VALUE = 150;
+const TAXI_BASE = 120;
+const TRIAL_PAY = 250;
+const TAXI_OFFER_EVERY = 50;
+const TRIAL_OFFER_EVERY = 70;
+const TAXI_PICKUP_WINDOW = 40;
+const TRIAL_TIME_LIMIT = 40;
+const TAXI_PICKUP_RADIUS = 6;
+const TAXI_DROP_RADIUS = 7;
+const TRIAL_RADIUS = 7;
+const STASH_RADIUS = 3.5;
 
-// ---------------------------------------------------------------- story spine
-export const MISSIONS = [
-  {
-    id: 'first-fare',
-    title: 'First Fare',
-    district: 'marina',
-    reward: 450,
-    heat: 0,
-    timeOfDay: 'day',
-    briefing:
-      'Milo Kade just rolled into Marisol Bay with a borrowed taxi and twelve bucks. ' +
-      'Pick up a fare on the marina promenade and run them across town. Easy money, ' +
-      'as long as nobody checks the plates.',
-    type: 'drive',
-    stages: [
-      { label: 'Pick up the fare at the marina promenade', x: -171, z: 62, radius: 7 },
-      { label: 'Drive the fare to the Old Quarter drop-off', x: -96, z: -104, radius: 7 },
-    ],
-  },
-  {
-    id: 'beachfront-run',
-    title: 'Beachfront Run',
-    district: 'beachfront',
-    reward: 620,
-    heat: 1,
-    timeOfDay: 'day',
-    briefing:
-      'A courier outfit wants a package moved down the beachfront before the ' +
-      'sunbathers notice. Thread the promenade checkpoints before the clock runs dry.',
-    type: 'timed',
-    timeLimit: 78,
-    stages: [
-      { label: 'Hit the promenade checkpoints before the clock runs out', x: -190, z: 30, radius: 9 },
-      { label: 'Checkpoint: pier steps', x: -190, z: -46, radius: 9 },
-      { label: 'Checkpoint: the lifeguard tower', x: -196, z: -120, radius: 9 },
-      { label: 'Checkpoint: promenade south', x: -190, z: -178, radius: 9 },
-      { label: 'Finish at the marina end of the beach', x: -176, z: -40, radius: 9 },
-    ],
-  },
-  {
-    id: 'marina-muscle',
-    title: 'Marina Muscle',
-    district: 'marina',
-    reward: 780,
-    heat: 2,
-    timeOfDay: 'day',
-    briefing:
-      'Dock hands at the marina are shaking down the boat owners again. Milo ' +
-      'gets paid to stand in the lot and make sure the shakedown crew leaves ' +
-      'with empty hands.',
-    type: 'defend',
-    duration: 55,
-    needHits: 2,
-    stages: [
-      { label: 'Hold the marina lot and push back the crew', x: -124, z: 108, radius: 18 },
-    ],
-  },
-  {
-    id: 'oldquarter-pickup',
-    title: 'Old Quarter Pickup',
-    district: 'oldquarter',
-    reward: 900,
-    heat: 2,
-    timeOfDay: 'dusk',
-    briefing:
-      'A sealed crate is waiting behind a shuttered bodega in the Old Quarter. ' +
-      'The neighbourhood talks, so keep the police off your back: arrive with a ' +
-      'clean record or this pickup goes sideways.',
-    type: 'stealth',
-    stages: [
-      { label: 'Reach the Old Quarter pickup with at most 1 star', x: -92, z: -138, radius: 7 },
-    ],
-  },
-  {
-    id: 'downtown-heat',
-    title: 'Downtown Heat',
-    district: 'downtown',
-    reward: 1250,
-    heat: 3,
-    timeOfDay: 'dusk',
-    briefing:
-      'The crate was bait. MPD floods downtown the moment Milo touches it. ' +
-      'Get the heat up, then vanish completely before the net closes.',
-    type: 'chase',
-    stages: [
-      { label: 'Drive downtown and trip the MPD trap', x: 46, z: -120, radius: 8 },
-      { label: 'Escape the chase: drop all wanted stars', x: 46, z: -120, radius: 8 },
-    ],
-  },
-  {
-    id: 'portside-takeover',
-    title: 'Portside Takeover',
-    district: 'portside',
-    reward: 2400,
-    heat: 4,
-    timeOfDay: 'night',
-    briefing:
-      'Portside is the last district not flying Milo\u2019s colours. Take the ' +
-      'container yard at midnight and Marisol Bay belongs to him.',
-    type: 'finale',
-    duration: 60,
-    needHits: 3,
-    requiresAllTurf: true,
-    stages: [
-      { label: 'Secure the Portside container yard', x: 170, z: 170, radius: 20 },
-    ],
-  },
-];
-
-// 12 hidden cash stashes, two in every district.
-export const COLLECTIBLES = [
-  { x: -188, z: 96, district: 'beachfront' },
-  { x: -186, z: -158, district: 'beachfront' },
-  { x: -118, z: 46, district: 'marina' },
-  { x: -64, z: 150, district: 'marina' },
-  { x: -86, z: -66, district: 'oldquarter' },
-  { x: -150, z: -176, district: 'oldquarter' },
-  { x: 4, z: -88, district: 'downtown' },
-  { x: 92, z: -168, district: 'downtown' },
-  { x: 158, z: 196, district: 'portside' },
-  { x: 196, z: 132, district: 'portside' },
-  { x: 118, z: 46, district: 'hillside' },
-  { x: 62, z: 152, district: 'hillside' },
-];
-
-const BEACON_COLORS = {
-  mission: 0xffc14d,
-  side: 0x4fd6c9,
-  collect: 0x7ee081,
-  turf: 0xff7a5a,
-};
-
-// ------------------------------------------------------------------ helpers
-function districtForPoint(x, z) {
-  for (let i = 0; i < DISTRICTS.length; i++) {
-    const d = DISTRICTS[i];
-    if (
-      x >= d.center.x - d.size.w / 2 && x <= d.center.x + d.size.w / 2 &&
-      z >= d.center.z - d.size.d / 2 && z <= d.center.z + d.size.d / 2
-    ) {
-      return d.key;
-    }
-  }
-  let best = DISTRICTS[0];
-  let bestD = Infinity;
-  for (let i = 0; i < DISTRICTS.length; i++) {
-    const d = DISTRICTS[i];
-    const dx = x - d.center.x;
-    const dz = z - d.center.z;
-    const dd = dx * dx + dz * dz;
-    if (dd < bestD) {
-      bestD = dd;
-      best = d;
-    }
-  }
-  return best.key;
+const districtByKey = {};
+for (let i = 0; i < DISTRICTS.length; i++) {
+  districtByKey[DISTRICTS[i].key] = DISTRICTS[i];
 }
 
-function makeBeacon(color) {
-  const group = new THREE.Group();
-  group.name = 'mission-beacon';
+const STASHES = [
+  { x: -178, z: 40, district: 'beachfront' },
+  { x: -178, z: -20, district: 'beachfront' },
+  { x: -80, z: 160, district: 'marina' },
+  { x: -140, z: 160, district: 'marina' },
+  { x: -140, z: -140, district: 'oldquarter' },
+  { x: -20, z: -80, district: 'oldquarter' },
+  { x: 40, z: -200, district: 'downtown' },
+  { x: 100, z: -80, district: 'downtown' },
+  { x: 160, z: 220, district: 'portside' },
+  { x: 220, z: 160, district: 'portside' },
+  { x: 100, z: 40, district: 'hillside' },
+  { x: 160, z: 100, district: 'hillside' },
+];
 
-  const pillarMat = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.17,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
-  });
-  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 2.1, 46, 14, 1, true), pillarMat);
-  pillar.position.y = 23;
-  group.add(pillar);
+function wantedOf(missions) {
+  try {
+    const police = missions.opts.police;
+    if (!police || typeof police.getWanted !== 'function') return 0;
+    const n = Number(police.getWanted());
+    return isFinite(n) ? n : 0;
+  } catch (err) {
+    return 0;
+  }
+}
 
-  const ringMat = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.6,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(2.1, 2.9, 26), ringMat);
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.14;
-  group.add(ring);
+function sceneScore(missions, m) {
+  const base = m.base || { shots: 0, punch: 0, hitCop: 0, hitPed: 0 };
+  const c = missions.counters;
+  return (c.shots - base.shots) + (c.punch - base.punch) + (c.hitCop - base.hitCop) + (c.hitPed - base.hitPed);
+}
 
-  const gemMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 });
-  const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.85, 0), gemMat);
-  gem.position.y = 4.2;
-  group.add(gem);
+const STORY = [
+  {
+    id: 'beachfront',
+    district: 'beachfront',
+    title: 'First Fare',
+    reward: 300,
+    stages: [
+      {
+        text: 'GET TO THE BEACHFRONT PICKUP',
+        marker: { x: -178, z: 40 },
+        radius: 7,
+      },
+      {
+        text: 'DRIVE TO THE BEACHFRONT DROP-OFF',
+        marker: { x: -140, z: -80 },
+        radius: 7,
+      },
+    ],
+  },
+  {
+    id: 'marina',
+    district: 'marina',
+    title: 'Marina Run',
+    reward: 450,
+    stages: [
+      {
+        text: 'REACH THE MARINA START',
+        marker: { x: -80, z: 100 },
+        radius: 8,
+      },
+      {
+        text: 'REACH THE MARINA FINISH IN 75s',
+        marker: { x: -20, z: 160 },
+        radius: 8,
+        limit: 75,
+        failReason: 'Time expired',
+      },
+    ],
+  },
+  {
+    id: 'oldquarter',
+    district: 'oldquarter',
+    title: 'Old Quarter Debt',
+    reward: 500,
+    stages: [
+      {
+        text: 'COLLECT THE CASH STASH 1/3',
+        marker: { x: -80, z: -140 },
+        radius: 6,
+      },
+      {
+        text: 'COLLECT THE CASH STASH 2/3',
+        marker: { x: -20, z: -140 },
+        radius: 6,
+      },
+      {
+        text: 'COLLECT THE CASH STASH 3/3',
+        marker: { x: -80, z: -80 },
+        radius: 6,
+      },
+    ],
+  },
+  {
+    id: 'downtown',
+    district: 'downtown',
+    title: 'Downtown Heat',
+    reward: 650,
+    stages: [
+      {
+        text: 'CAUSE A SCENE \u2014 GET WANTED 2',
+        marker: null,
+        radius: 0,
+        tick(missions, m, dt, dist) {
+          if (wantedOf(missions) >= 2) return 'next';
+          if (sceneScore(missions, m) >= 3) return 'next';
+          if (m.stageTime > 45) return 'next';
+          return 'hold';
+        },
+      },
+      {
+        text: 'REACH THE DOWNTOWN SAFE-HOUSE',
+        marker: { x: 100, z: -140 },
+        radius: 8,
+      },
+    ],
+  },
+  {
+    id: 'portside',
+    district: 'portside',
+    title: 'Portside Nights',
+    reward: 800,
+    onStart(missions) {
+      missions.tod('night');
+      return undefined;
+    },
+    onEnd() {
+      this.tod('day');
+    },
+    stages: [
+      {
+        text: 'REACH THE PORT DOCKS',
+        marker: { x: 160, z: 160 },
+        radius: 9,
+      },
+      {
+        text: 'HOLD THE DOCKS 20s WITH HEAT',
+        marker: { x: 160, z: 160 },
+        radius: 11,
+        tick(missions, m, dt, dist) {
+          const wanted = wantedOf(missions);
+          if (wanted >= 1 && dist <= 11) m.hold += dt;
+          else m.hold = Math.max(0, m.hold - dt * 0.6);
+          if (m.hold >= 20) return 'next';
+          if (m.stageTime > 120) return 'next';
+          return 'hold';
+        },
+      },
+    ],
+  },
+  {
+    id: 'hillside',
+    district: 'hillside',
+    title: 'Hillside Crown',
+    reward: 1000,
+    stages: [
+      {
+        text: 'HILLSIDE MARKER 1/3 \u2014 120s',
+        marker: { x: 100, z: 100 },
+        radius: 8,
+        tick(missions, m) {
+          if (m.totalTime >= 120) return 'fail';
+          return null;
+        },
+        failReason: 'Out of time',
+      },
+      {
+        text: 'HILLSIDE MARKER 2/3 \u2014 120s',
+        marker: { x: 160, z: 100 },
+        radius: 8,
+        tick(missions, m) {
+          if (m.totalTime >= 120) return 'fail';
+          return null;
+        },
+        failReason: 'Out of time',
+      },
+      {
+        text: 'HILLSIDE MARKER 3/3 \u2014 120s',
+        marker: { x: 100, z: 40 },
+        radius: 8,
+        tick(missions, m) {
+          if (m.totalTime >= 120) return 'fail';
+          return null;
+        },
+        failReason: 'Out of time',
+      },
+    ],
+  },
+];
 
-  group.visible = false;
-  return { group, pillar, pillarMat, ring, ringMat, gem, gemMat, phase: 0 };
+const FINALE = {
+  id: 'finale',
+  district: null,
+  kind: 'finale',
+  title: 'King of the Bay',
+  reward: 1500,
+  stages: [
+    {
+      text: 'REACH THE DOWNTOWN BEACON',
+      marker: { x: 40, z: -80 },
+      radius: 10,
+    },
+    {
+      text: 'REACH THE MARINA BEACON',
+      marker: { x: -80, z: 100 },
+      radius: 10,
+    },
+    {
+      text: 'SURVIVE 30s WITH WANTED 2',
+      marker: null,
+      radius: 0,
+      failReason: 'You went down',
+      tick(missions, m, dt) {
+        const alive = missions.aliveState();
+        if (alive === false) return 'fail';
+        const wanted = wantedOf(missions);
+        if (wanted >= 2) m.hold += dt;
+        else m.hold = Math.max(0, m.hold - dt);
+        if (m.hold >= 30) return 'next';
+        if (m.stageTime > 120) return 'next';
+        return 'hold';
+      },
+    },
+  ],
+};
+
+function missionDef(id) {
+  for (let i = 0; i < STORY.length; i++) if (STORY[i].id === id) return STORY[i];
+  if (id === FINALE.id) return FINALE;
+  return null;
+}
+
+function finiteNumber(v, fallback) {
+  return typeof v === 'number' && isFinite(v) ? v : fallback;
 }
 
 export class Missions {
-  constructor(state = {}) {
-    this.state = state;
-    this.player = state.player || null;
-    this.police = state.police || null;
-    this.combat = state.combat || null;
-    this.world = state.world || null;
-    this.effects = state.effects || null;
-    this.onEvent = state.onEvent || null;
-    this.onTimeOfDay = state.onTimeOfDay || null;
-    this.scene = state.scene || null;
+  constructor(opts = {}) {
+    this.opts = opts || {};
+    this.world = this.opts.world || null;
+    this.player = this.opts.player || null;
 
-    this.time = 0;
-    this.completed = {};
-    this.collected = {};
-    this.bestTimes = {};
-    this.turf = {};
-    for (let i = 0; i < DISTRICTS.length; i++) this.turf[DISTRICTS[i].key] = 0;
+    this.onTimeOfDay = null;
+    this.onEvent = null;
 
-    this.taken = {};
-    this.mission = null;
-    this.markerPos = null;
-    this.markerLabel = '';
-    this.taxi = null;
-    this.trial = null;
-    this.offerTimer = 25;
-    this.incomeAcc = 0;
-    this.collectCount = 0;
-    this.combatTurfCd = 0;
+    this.done = new Set();
+    this.districts = [];
+    this.collected = new Set();
+    this.taxiCount = 0;
+    this.trialCount = 0;
+    this.finaleDone = false;
+    this.finaleUnlocked = false;
 
-    this.root = null;
-    this.beacons = { mission: null, side: null, collect: null };
-    this.collectMeshes = [];
-    this.buildVisuals();
-    this.refreshCollectibles();
+    this.active = null;
+    this.side = null;
+    this.marker = null;
+
+    this.counters = { shots: 0, punch: 0, hitCop: 0, hitPed: 0 };
+    this.taxiTimer = 0;
+    this.trialTimer = 0;
+    this.pulse = 0;
+    this.beaconTime = 0;
+
+    this.beacon = null;
+    this.beaconRing = null;
+    this.buildBeacon();
   }
 
-  // --------------------------------------------------------------- visuals
-  buildVisuals() {
-    const parent = (this.world && this.world.group) || null;
-    if (!parent) return;
-    this.root = new THREE.Group();
-    this.root.name = 'missions';
-    parent.add(this.root);
-
-    this.beacons.mission = makeBeacon(BEACON_COLORS.mission);
-    this.beacons.side = makeBeacon(BEACON_COLORS.side);
-    this.beacons.collect = makeBeacon(BEACON_COLORS.collect);
-    this.root.add(this.beacons.mission.group);
-    this.root.add(this.beacons.side.group);
-    this.root.add(this.beacons.collect.group);
-
-    const geo = new THREE.BoxGeometry(0.9, 0.55, 0.62);
-    const mat = new THREE.MeshLambertMaterial({
-      color: 0x3fae63,
-      emissive: 0x1a5a2c,
-      emissiveIntensity: 0.6,
-    });
-    for (let i = 0; i < COLLECTIBLES.length; i++) {
-      const c = COLLECTIBLES[i];
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(c.x, 1.1, c.z);
-      mesh.rotation.y = i * 0.7;
-      this.root.add(mesh);
-      this.collectMeshes.push(mesh);
-    }
-
-    // Marked fare pedestrian for taxi side jobs: a bright low-poly local with a
-    // floating fare tag so the player can see who to collect.
-    const fare = new THREE.Group();
-    const fareBody = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.28, 0.34, 1.1, 8),
-      new THREE.MeshLambertMaterial({ color: 0xffd166, emissive: 0x6a4c00, emissiveIntensity: 0.5 }),
-    );
-    fareBody.position.y = 0.55;
-    fare.add(fareBody);
-    const fareHead = new THREE.Mesh(
-      new THREE.SphereGeometry(0.24, 10, 8),
-      new THREE.MeshLambertMaterial({ color: 0xe8b98a }),
-    );
-    fareHead.position.y = 1.32;
-    fare.add(fareHead);
-    const fareTag = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.4, 0),
-      new THREE.MeshBasicMaterial({ color: 0xffe9a4 }),
-    );
-    fareTag.position.y = 2.1;
-    fare.add(fareTag);
-    fare.visible = false;
-    this.root.add(fare);
-    this.fareMesh = fare;
-    this.fareTag = fareTag;
+  get isMissionActive() {
+    return !!this.active;
   }
 
-  refreshCollectibles() {
-    for (let i = 0; i < this.collectMeshes.length; i++) {
-      this.collectMeshes[i].visible = !this.collected[i];
-    }
-    this.collectCount = Object.keys(this.collected).length;
-  }
-
-  // ------------------------------------------------------------------ state
-  addCash(n) {
-    const amount = typeof n === 'number' && isFinite(n) ? n : 0;
-    if (!amount) return this.getCash();
+  buildBeacon() {
     try {
-      this.state.cash = this.getCash() + amount;
+      const group = this.world && this.world.group;
+      if (!group || !THREE) return;
+      const root = new THREE.Group();
+      const column = new THREE.Mesh(
+        new THREE.CylinderGeometry(2.2, 2.7, 9, 18, 1, true),
+        new THREE.MeshBasicMaterial({
+          color: 0xffc95a,
+          transparent: true,
+          opacity: 0.22,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      );
+      column.position.y = 4.5;
+      const core = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.4, 0.4, 10, 8),
+        new THREE.MeshBasicMaterial({
+          color: 0xffe1a0,
+          transparent: true,
+          opacity: 0.6,
+          depthWrite: false,
+        }),
+      );
+      core.position.y = 5;
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(2.7, 3.5, 24),
+        new THREE.MeshBasicMaterial({
+          color: 0xffd27a,
+          transparent: true,
+          opacity: 0.78,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.09;
+      root.add(column);
+      root.add(core);
+      root.add(ring);
+      root.visible = false;
+      group.add(root);
+      this.beacon = root;
+      this.beaconRing = ring;
     } catch (err) {
-      void err;
+      this.beacon = null;
+      this.beaconRing = null;
     }
-    return this.getCash();
-  }
-
-  getCash() {
-    const v = this.state.cash;
-    return typeof v === 'number' && isFinite(v) ? v : 0;
-  }
-
-  getTurf() {
-    const out = {};
-    for (let i = 0; i < DISTRICTS.length; i++) {
-      const k = DISTRICTS[i].key;
-      out[k] = Math.round(this.turf[k] || 0);
-    }
-    return out;
-  }
-
-  turfCount() {
-    let n = 0;
-    for (let i = 0; i < DISTRICTS.length; i++) {
-      if (this.taken[DISTRICTS[i].key]) n++;
-    }
-    return n;
-  }
-
-  get collectiblesFound() {
-    return this.collectCount;
-  }
-
-  addTurf(key, amount) {
-    if (this.turf[key] === undefined || !(amount > 0)) return;
-    if (this.taken[key]) return;
-    this.turf[key] = Math.min(100, this.turf[key] + amount);
-    if (this.turf[key] >= 100) this.takeDistrict(key);
-  }
-
-  takeDistrict(key) {
-    if (this.taken[key]) return;
-    this.taken[key] = true;
-    this.turf[key] = 100;
-    const name = (DISTRICTS.find((d) => d.key === key) || {}).name || key;
-    this.addCash(300);
-    if (this.police) this.police.addHeat(1, 'turf-takeover');
-    this.emit('district', { key, name });
   }
 
   emit(kind, data) {
-    if (typeof this.onEvent === 'function') this.onEvent(kind, data || {});
+    try {
+      if (typeof this.onEvent === 'function') this.onEvent(kind, data);
+    } catch (err) {
+      /* hud callbacks are external */
+    }
   }
 
-  // ---------------------------------------------------------------- missions
+  tod(mode) {
+    try {
+      if (typeof this.onTimeOfDay === 'function') this.onTimeOfDay(mode);
+    } catch (err) {
+      /* optional */
+    }
+  }
+
+  addHeat(amount, reason) {
+    try {
+      const police = this.opts.police;
+      if (police && typeof police.addHeat === 'function') police.addHeat(amount, reason);
+    } catch (err) {
+      /* optional */
+    }
+  }
+
+  readCash() {
+    return finiteNumber(this.opts.cash, 0);
+  }
+
+  addCash(amount) {
+    try {
+      this.opts.cash = this.readCash() + amount;
+    } catch (err) {
+      /* cash is a plain property on opts */
+    }
+  }
+
+  drivingCar() {
+    try {
+      const fn = this.opts.driving;
+      if (typeof fn !== 'function') return null;
+      const car = fn();
+      return car || null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  playerPoint() {
+    const car = this.drivingCar();
+    if (car) {
+      if (car.group && car.group.position) return car.group.position;
+      if (typeof car.x === 'number' && typeof car.z === 'number') return { x: car.x, z: car.z };
+    }
+    const player = this.player;
+    if (player && player.position) return player.position;
+    return null;
+  }
+
+  aliveState() {
+    try {
+      const combat = this.opts.combat;
+      if (!combat || !combat.state) return null;
+      if (combat.state.alive === false) return false;
+      const health = finiteNumber(combat.state.health, 100);
+      return health > 0;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  districtName(key) {
+    const d = districtByKey[key];
+    return d ? d.name : key;
+  }
+
+  missionUnlocked(def) {
+    if (!def) return false;
+    if (def.kind === 'finale') return this.finaleUnlocked || this.districts.length >= 6;
+    const index = STORY.indexOf(def);
+    if (index <= 0) return true;
+    const prev = STORY[index - 1];
+    return this.districts.indexOf(prev.district) !== -1;
+  }
+
+  missionStatus(def) {
+    if (this.done.has(def.id)) return 'done';
+    if (this.active && this.active.id === def.id) return 'active';
+    return this.missionUnlocked(def) ? 'available' : 'locked';
+  }
+
   getMissions() {
-    return MISSIONS.map((m, i) => this.missionInfo(m, i));
-  }
-
-  missionInfo(m, index) {
-    const chainOk = this.unlocked(index);
-    const turfOk = !m.requiresAllTurf || this.turfCount() >= DISTRICTS.length;
-    return {
-      id: m.id,
-      title: m.title,
-      district: m.district,
-      reward: m.reward,
-      briefing: m.briefing,
-      completed: !!this.completed[m.id],
-      locked: !chainOk || !turfOk,
-      active: !!(this.mission && this.mission.def.id === m.id),
-      requiresAllTurf: !!m.requiresAllTurf,
-      type: m.type,
-      timeOfDay: m.timeOfDay,
-    };
-  }
-
-  unlocked(index) {
-    if (index === 0) return true;
-    return !!this.completed[MISSIONS[index - 1].id];
+    const list = [];
+    for (let i = 0; i < STORY.length; i++) {
+      const def = STORY[i];
+      list.push({
+        id: def.id,
+        title: def.title,
+        district: this.districtName(def.district),
+        status: this.missionStatus(def),
+      });
+    }
+    list.push({
+      id: FINALE.id,
+      title: FINALE.title,
+      district: 'Marisol Bay',
+      status: this.missionStatus(FINALE),
+    });
+    return list;
   }
 
   nextMission() {
-    for (let i = 0; i < MISSIONS.length; i++) {
-      const def = MISSIONS[i];
-      if (!this.completed[def.id]) return this.unlocked(i) ? def : null;
+    for (let i = 0; i < STORY.length; i++) {
+      const def = STORY[i];
+      if (this.done.has(def.id)) continue;
+      if (!this.missionUnlocked(def)) continue;
+      return { id: def.id, title: def.title };
+    }
+    if (!this.done.has(FINALE.id) && this.missionUnlocked(FINALE)) {
+      return { id: FINALE.id, title: FINALE.title };
     }
     return null;
   }
 
   startMission(id) {
-    if (this.mission) return false;
-    let index = -1;
-    for (let i = 0; i < MISSIONS.length; i++) {
-      if (MISSIONS[i].id === id) {
-        index = i;
-        break;
-      }
-    }
-    if (index < 0) return false;
-    if (this.completed[id]) return false;
-    if (!this.unlocked(index)) return false;
-
-    const def = MISSIONS[index];
-    if (def.requiresAllTurf && this.turfCount() < DISTRICTS.length) {
-      this.emit('locked', { id, reason: 'turf' });
+    const def = missionDef(id);
+    if (!def) return false;
+    if (this.done.has(def.id)) return false;
+    if (this.active && this.active.id === def.id) return false;
+    if (!this.missionUnlocked(def)) {
+      this.emit('locked');
       return false;
     }
-
-    const run = {
-      def,
-      stage: 0,
-      stageTime: 0,
-      elapsed: 0,
-      hits: 0,
-      timer: def.type === 'timed' ? def.timeLimit : 0,
-      done: false,
-    };
-
-    // One-shot crimes the story calls for: the chase mission starts hot.
-    if (def.heat > 0 && this.police) this.police.addHeat(def.heat, 'mission:' + def.id);
-
-    this.mission = run;
-    this.updateMarker();
-    if (def.timeOfDay && typeof this.onTimeOfDay === 'function') {
-      this.onTimeOfDay(def.timeOfDay);
-    }
-    this.emit('mission-start', { id: def.id, title: def.title });
+    this.begin(def, false);
     return true;
   }
 
-  abortMission() {
-    if (!this.mission) return false;
-    const id = this.mission.def.id;
-    this.mission = null;
-    this.markerPos = null;
-    this.markerLabel = '';
-    this.emit('mission-abort', { id });
-    return true;
-  }
-
-  completeMission() {
-    const run = this.mission;
-    if (!run) return;
-    const def = run.def;
-    run.done = true;
-    this.mission = null;
-    this.completed[def.id] = true;
-    this.addCash(def.reward);
-    this.addTurf(def.district, TURF_GAIN_MISSION);
-    this.markerPos = null;
-    this.markerLabel = '';
-    this.emit('mission-complete', {
-      id: def.id,
-      title: def.title,
-      reward: def.reward,
-      district: def.district,
-    });
-    if (this.turfCount() >= DISTRICTS.length && !this.completed['portside-takeover']) {
-      this.emit('finale-unlocked', {});
+  begin(def, silent) {
+    try {
+      this.side = null;
+      this.marker = null;
+      this.taxiTimer = 0;
+      this.trialTimer = 0;
+      this.active = {
+        id: def.id,
+        def,
+        stage: 0,
+        entered: false,
+        stageTime: 0,
+        totalTime: 0,
+        hold: 0,
+        base: {
+          shots: this.counters.shots,
+          punch: this.counters.punch,
+          hitCop: this.counters.hitCop,
+          hitPed: this.counters.hitPed,
+        },
+      };
+      const first = def.stages[0];
+      if (first && first.marker) this.marker = { x: first.marker.x, z: first.marker.z };
+      if (!silent) this.emit('mission-start', { title: def.title });
+      if (typeof def.onStart === 'function') def.onStart.call(this, this);
+    } catch (err) {
+      this.active = null;
     }
   }
 
-  failMission(reason) {
-    const run = this.mission;
-    if (!run) return;
-    const id = run.def.id;
-    this.mission = null;
-    this.markerPos = null;
-    this.markerLabel = '';
-    this.emit('mission-fail', { id, reason: reason || 'failed' });
-  }
-
-  currentStage() {
-    if (!this.mission) return null;
-    const stages = this.mission.def.stages || [];
-    return stages[Math.min(this.mission.stage, stages.length - 1)] || null;
-  }
-
-  // Marker the HUD minimap should point at: story stage, then side activity.
-  getMarker() {
-    if (this.mission && this.markerPos) {
-      return { x: this.markerPos.x, z: this.markerPos.z, label: this.markerLabel };
+  advance() {
+    const m = this.active;
+    if (!m) return;
+    m.stage++;
+    if (m.stage >= m.def.stages.length) {
+      this.complete();
+      return;
     }
-    if (this.taxi) {
-      const spot = this.taxi.phase === 0 ? this.taxi.pickup : this.taxi.dropoff;
-      return { x: spot.x, z: spot.z, label: 'Taxi fare' };
+    m.entered = false;
+    m.stageTime = 0;
+    m.hold = 0;
+    const stage = m.def.stages[m.stage];
+    this.marker = stage && stage.marker ? { x: stage.marker.x, z: stage.marker.z } : null;
+    this.emit('mission-stage');
+  }
+
+  fail(reason) {
+    const m = this.active;
+    if (!m) return;
+    const def = m.def;
+    try {
+      if (typeof def.onEnd === 'function') def.onEnd.call(this, false);
+    } catch (err) {
+      /* optional hook */
     }
-    if (this.trial) {
-      const cp = this.trial.checkpoints[this.trial.stage];
-      if (cp) return { x: cp.x, z: cp.z, label: 'Checkpoint' };
+    this.active = null;
+    this.marker = null;
+    this.emit('mission-fail', { reason: reason || 'Mission failed' });
+  }
+
+  complete() {
+    const m = this.active;
+    if (!m) return;
+    const def = m.def;
+    const reward = finiteNumber(def.reward, 0);
+    this.addCash(reward);
+    this.done.add(def.id);
+    try {
+      if (typeof def.onEnd === 'function') def.onEnd.call(this, true);
+    } catch (err) {
+      /* optional hook */
     }
-    return null;
+    this.active = null;
+    this.marker = null;
+    if (def.kind === 'finale') {
+      this.finaleDone = true;
+      this.finaleUnlocked = true;
+    } else if (def.district) {
+      this.takeDistrict(def.district);
+    }
+    this.checkFinale();
+    this.emit('mission-complete', { reward });
   }
 
-  playerPosition() {
-    const car = this.state.driving ? this.state.driving() : null;
-    if (car && car.group && car.group.position) return car.group.position;
-    if (!this.player) return { x: 0, z: 0 };
-    const p = this.player.position;
-    return p || this.player.state || { x: 0, z: 0 };
+  takeDistrict(key) {
+    if (!districtByKey[key]) return;
+    if (this.districts.indexOf(key) !== -1) return;
+    this.districts.push(key);
+    this.emit('district', { name: this.districtName(key) });
+    this.addHeat(1, 'turf-takeover');
   }
 
-  driving() {
-    return !!(this.state.driving && this.state.driving());
+  checkFinale() {
+    if (this.finaleUnlocked) return;
+    if (this.districts.length < 6) return;
+    this.finaleUnlocked = true;
+    this.emit('finale-unlocked');
   }
 
-  distTo(x, z) {
-    const p = this.playerPosition();
-    return Math.hypot(p.x - x, p.z - z);
-  }
-
-  // ------------------------------------------------------------- per-frame
   update(dt) {
-    const step = dt > 0 ? Math.min(dt, 0.1) : 0;
+    const step = Math.max(0, Math.min(finiteNumber(dt, 0), 0.1));
     if (step <= 0) return;
-    this.time += step;
-    this.combatTurfCd = Math.max(0, (this.combatTurfCd || 0) - step);
-
-    this.updateIncome(step);
-    this.updateCollectibles();
-    this.updateMarkers(step);
-
-    if (this.mission) this.updateMission(step);
-    else this.updateOffers(step);
-
-    this.updateTurfPush(step);
-    if (this.taxi) this.updateTaxi(step);
-    if (this.trial) this.updateTrial(step);
+    try {
+      if (this.active) this.updateMission(step);
+      else this.updateSide(step);
+      this.updateStashes();
+      this.updateBeacon(step);
+    } catch (err) {
+      /* never let mission logic break the frame */
+    }
   }
 
-  // Standing in a district you don't own yet slowly pushes it toward takeover;
-  // it's the honest way to grind the last few points of turf.
-  updateTurfPush(step) {
-    const p = this.playerPosition();
-    const key = districtForPoint(p.x, p.z);
-    if (this.taken[key]) {
-      this.pushAcc = 0;
+  updateMission(dt) {
+    const m = this.active;
+    if (!m) return;
+    const stage = m.def.stages[m.stage];
+    if (!stage) {
+      this.fail('Mission error');
       return;
     }
-    this.pushAcc = (this.pushAcc || 0) + step;
-    if (this.pushAcc < 1) return;
-    const seconds = this.pushAcc;
-    this.pushAcc = 0;
-    this.addTurf(key, TURF_PUSH_RATE * seconds);
-  }
-
-  updateIncome(step) {
-    const count = this.turfCount();
-    if (count <= 0) return;
-    this.incomeAcc += TURF_INCOME * count * step;
-    if (this.incomeAcc >= 1) {
-      const whole = Math.floor(this.incomeAcc);
-      this.incomeAcc -= whole;
-      this.addCash(whole);
-    }
-  }
-
-  updateCollectibles() {
-    const p = this.playerPosition();
-    for (let i = 0; i < COLLECTIBLES.length; i++) {
-      if (this.collected[i]) continue;
-      const c = COLLECTIBLES[i];
-      const dx = p.x - c.x;
-      const dz = p.z - c.z;
-      if (dx * dx + dz * dz > 3.4 * 3.4) continue;
-      this.collected[i] = true;
-      this.refreshCollectibles();
-      this.addCash(COLLECT_REWARD);
-      this.addTurf(c.district, TURF_GAIN_COLLECT);
-      if (this.effects) {
-        this.effects.spawnBurst({ x: c.x, y: 1.2, z: c.z }, 'sparks', 12);
-      }
-      this.emit('collect', { index: i, district: c.district, total: this.collectCount });
-    }
-  }
-
-  updateMarkers(dt) {
-    const m = this.beacons.mission;
-    const s = this.beacons.side;
-    const c = this.beacons.collect;
-
-    const pulse = 0.13 + Math.sin(this.time * 2.4) * 0.05;
-    if (m) {
-      m.group.visible = !!(this.mission && this.markerPos);
-      if (m.group.visible) {
-        m.group.position.set(this.markerPos.x, 0, this.markerPos.z);
-        m.pillarMat.opacity = pulse + 0.05;
-        m.gem.position.y = 4.2 + Math.sin(this.time * 2.2) * 0.35;
-        m.gem.rotation.y += dt * 1.6;
-        m.ring.rotation.z += dt * 0.5;
-      }
-    }
-
-    if (s) {
-      let spot = null;
-      if (this.taxi) {
-        spot = this.taxi.phase === 0 ? this.taxi.pickup : this.taxi.dropoff;
-      } else if (this.trial) {
-        spot = this.trial.checkpoints[this.trial.stage] || null;
-      }
-      s.group.visible = !!spot;
-      if (spot) {
-        s.group.position.set(spot.x, 0, spot.z);
-        s.pillarMat.opacity = 0.12 + Math.sin(this.time * 3.1) * 0.04;
-        s.gem.position.y = 3.4 + Math.sin(this.time * 2.6) * 0.3;
-        s.gem.rotation.y -= dt * 1.9;
-      }
-    }
-
-    if (c) {
-      let nearest = null;
-      let bestD = Infinity;
-      const p = this.playerPosition();
-      for (let i = 0; i < COLLECTIBLES.length; i++) {
-        if (this.collected[i]) continue;
-        const col = COLLECTIBLES[i];
-        const dd = (col.x - p.x) ** 2 + (col.z - p.z) ** 2;
-        if (dd < bestD) {
-          bestD = dd;
-          nearest = col;
+    if (!m.entered) {
+      m.entered = true;
+      m.stageTime = 0;
+      m.hold = 0;
+      if (typeof stage.enter === 'function') {
+        try {
+          stage.enter.call(this, m);
+        } catch (err) {
+          /* optional hook */
         }
       }
-      c.group.visible = !!nearest && this.collectCount < COLLECTIBLES.length;
-      if (nearest && c.group.visible) {
-        c.group.position.set(nearest.x, 0, nearest.z);
-        c.pillarMat.opacity = 0.1 + Math.sin(this.time * 1.7) * 0.035;
-      }
+    }
+    m.stageTime += dt;
+    m.totalTime += dt;
+    this.marker = stage.marker ? { x: stage.marker.x, z: stage.marker.z } : null;
+
+    const point = this.playerPoint();
+    let dist = Infinity;
+    if (point && this.marker) {
+      const dx = point.x - this.marker.x;
+      const dz = point.z - this.marker.z;
+      dist = Math.sqrt(dx * dx + dz * dz);
     }
 
-    for (let i = 0; i < this.collectMeshes.length; i++) {
-      const mesh = this.collectMeshes[i];
-      if (!mesh.visible) continue;
-      mesh.rotation.y += dt * 1.2;
-      mesh.position.y = 1.1 + Math.sin(this.time * 2 + i) * 0.14;
-    }
-
-    if (this.fareMesh) {
-      this.fareMesh.visible = !!this.taxi && this.taxi.phase === 0;
-      if (this.fareMesh.visible) {
-        const spot = this.taxi.pickup;
-        this.fareMesh.position.set(spot.x, 0, spot.z);
-        this.fareMesh.rotation.y = this.time * 0.9;
-        this.fareTag.rotation.y = this.time * 2.4;
-        this.fareTag.position.y = 2.1 + Math.sin(this.time * 2.8) * 0.16;
-      }
-    }
-  }
-
-  updateMarker() {
-    if (!this.mission) {
-      this.markerPos = null;
-      this.markerLabel = '';
+    if (stage.limit && m.stageTime >= stage.limit) {
+      this.fail(stage.failReason || 'Out of time');
       return;
     }
-    const stage = this.currentStage();
-    if (stage) {
-      this.markerPos = { x: stage.x, z: stage.z };
-      this.markerLabel = stage.label;
+
+    let outcome = null;
+    if (typeof stage.tick === 'function') {
+      try {
+        outcome = stage.tick.call(this, this, m, dt, dist);
+      } catch (err) {
+        outcome = null;
+      }
     }
-  }
 
-  updateMission(step) {
-    const run = this.mission;
-    const def = run.def;
-    run.elapsed += step;
-    run.stageTime += step;
-
-    const stage = this.currentStage();
-    const dist = stage ? this.distTo(stage.x, stage.z) : Infinity;
-    const inZone = dist <= (stage ? stage.radius || MARKER_RADIUS : MARKER_RADIUS);
-
-    switch (def.type) {
-      case 'drive': {
-        if (!this.driving()) break;
-        if (inZone && Math.abs((this.state.driving() && this.state.driving().speed) || 0) < 3.2) {
-          this.advanceStage();
-        }
-        break;
-      }
-      case 'timed': {
-        run.timer -= step;
-        if (run.timer <= 0) {
-          this.failMission('time');
-          break;
-        }
-        if (inZone && this.driving()) this.advanceStage();
-        break;
-      }
-      case 'defend':
-      case 'finale': {
-        if (inZone) {
-          run.timer += step * (this.police && this.police.getWanted() > 0 ? 1.25 : 0.7);
-        }
-        if (run.timer >= def.duration && run.hits >= (def.needHits || 0)) {
-          this.completeMission();
-        }
-        break;
-      }
-      case 'stealth': {
-        if (this.police && this.police.getWanted() > 1) {
-          run.warn = true;
-          break;
-        }
-        run.warn = false;
-        if (inZone) this.completeMission();
-        break;
-      }
-      case 'chase': {
-        if (run.stage === 0) {
-          if (inZone) {
-            run.stage = 1;
-            run.stageTime = 0;
-            if (this.police) this.police.setWanted(Math.max(3, this.police.getWanted()));
-            this.updateMarker();
-            this.emit('mission-stage', { id: def.id, stage: 1 });
-          }
-        } else if (this.police && this.police.getWanted() <= 0) {
-          this.completeMission();
-        }
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  advanceStage() {
-    const run = this.mission;
-    if (!run) return;
-    const stages = run.def.stages || [];
-    if (run.stage < stages.length - 1) {
-      run.stage++;
-      run.stageTime = 0;
-      this.updateMarker();
-      this.emit('mission-stage', { id: run.def.id, stage: run.stage });
+    if (outcome === 'fail') {
+      this.fail(stage.failReason || 'Mission failed');
       return;
     }
-    if (run.def.type === 'timed') {
-      const def = run.def;
-      const used = def.timeLimit - run.timer;
-      if (!this.bestTimes[def.id] || used < this.bestTimes[def.id]) {
-        this.bestTimes[def.id] = used;
-      }
-      this.emit('best-time', { id: def.id, seconds: used });
-    }
-    this.completeMission();
-  }
-
-  // Combat events from main are routed here so missions can score hits.
-  notify(kind, data) {
-    const p = this.playerPosition();
-    const key = districtForPoint(p.x, p.z);
-    if (kind === 'punch' || kind === 'shot' || kind === 'hitCop' || kind === 'hitPed') {
-      if (this.combatTurfCd <= 0) {
-        this.combatTurfCd = 4;
-        this.addTurf(key, TURF_GAIN_COMBAT);
-      }
-    }
-    if (kind === 'hitCop' && this.mission) {
-      const run = this.mission;
-      if (run.def.type === 'defend' || run.def.type === 'finale') run.hits++;
-    }
-    void data;
-  }
-
-  // --------------------------------------------------------------- activities
-  updateOffers(step) {
-    this.offerTimer -= step;
-    if (this.offerTimer > 0) return;
-    const car = this.state.driving ? this.state.driving() : null;
-    if (!car) {
-      this.offerTimer = 30;
+    if (outcome === 'next') {
+      this.advance();
       return;
     }
-    // Side work is offered by the car class: taxis get fares, sport cars get
-    // checkpoint trials.
-    if (car.type === 'taxi' && !this.taxi) {
-      this.offerTimer = 30;
-      this.startTaxi(this.playerPosition());
-      return;
-    }
-    if (car.type === 'sport' && !this.trial) {
-      this.offerTimer = 30;
-      this.startTimeTrial(this.playerPosition());
-      return;
-    }
-    this.offerTimer = 12;
+    if (outcome === 'hold') return;
+    if (this.marker && dist <= finiteNumber(stage.radius, 6)) this.advance();
   }
 
-  startTaxi(near) {
-    if (this.taxi) return false;
-    const p = near || this.playerPosition();
-    const pickAngle = this.time * 0.7;
-    const pickup = {
-      x: Math.max(WORLD.minX + 12, Math.min(WORLD.maxX - 12, p.x + Math.cos(pickAngle) * 34)),
-      z: Math.max(WORLD.minZ + 12, Math.min(WORLD.maxZ - 12, p.z + Math.sin(pickAngle) * 34)),
-    };
-    const dropoff = {
-      x: pickup.x + (pickup.x < 0 ? 1 : -1) * 90,
-      z: pickup.z + (pickup.z < 0 ? 1 : -1) * 70,
-    };
-    this.taxi = { phase: 0, pickup, dropoff, timer: 0 };
-    this.emit('taxi-start', {});
-    return true;
-  }
-
-  updateTaxi(step) {
-    const t = this.taxi;
-    t.timer += step;
-    const car = this.state.driving ? this.state.driving() : null;
-    const target = t.phase === 0 ? t.pickup : t.dropoff;
+  updateSide(dt) {
+    if (this.active) return;
+    if (this.side) {
+      this.progressSide(dt);
+      return;
+    }
+    const car = this.drivingCar();
     if (!car) return;
-    if (this.distTo(target.x, target.z) > 5.2) return;
-    if (Math.abs(car.speed || 0) > 3) return;
-    if (t.phase === 0) {
-      t.phase = 1;
-      this.emit('taxi-pickup', {});
-      return;
+    this.taxiTimer += dt;
+    this.trialTimer += dt;
+    if (this.taxiTimer >= TAXI_OFFER_EVERY) {
+      this.taxiTimer = 0;
+      this.offerTaxi();
+    } else if (this.trialTimer >= TRIAL_OFFER_EVERY) {
+      this.trialTimer = 0;
+      this.offerTrial();
     }
-    const key = districtForPoint(t.dropoff.x, t.dropoff.z);
-    this.addCash(220);
-    this.addTurf(key, TURF_GAIN_ACTIVITY);
-    this.taxi = null;
-    this.emit('taxi-complete', { cash: 220 });
   }
 
-  startTimeTrial(near) {
-    if (this.trial) return false;
-    const p = near || this.playerPosition();
-    const checkpoints = [];
-    for (let i = 0; i < 4; i++) {
-      const a = i * 1.35;
-      checkpoints.push({
-        x: Math.max(WORLD.minX + 14, Math.min(WORLD.maxX - 14, p.x + Math.cos(a) * (26 + i * 9))),
-        z: Math.max(WORLD.minZ + 14, Math.min(WORLD.maxZ - 14, p.z + Math.sin(a) * (26 + i * 9))),
+  offerTaxi() {
+    const pickup = this.roadPoint(150);
+    if (!pickup) return;
+    this.side = {
+      kind: 'taxi',
+      phase: 'pickup',
+      marker: pickup,
+      timer: 0,
+      driven: 0,
+      last: null,
+      drop: null,
+    };
+    this.marker = { x: pickup.x, z: pickup.z };
+    this.trialTimer = 0;
+    this.emit('taxi-start');
+  }
+
+  offerTrial() {
+    const point = this.roadPoint(140);
+    if (!point) return;
+    this.side = { kind: 'trial', marker: point, timer: 0 };
+    this.marker = { x: point.x, z: point.z };
+    this.taxiTimer = 0;
+    this.emit('trial-start');
+  }
+
+  progressSide(dt) {
+    const s = this.side;
+    if (!s) return;
+    s.timer += dt;
+    this.marker = s.marker;
+
+    const point = this.playerPoint();
+    let dist = Infinity;
+    if (point && s.marker) {
+      const dx = point.x - s.marker.x;
+      const dz = point.z - s.marker.z;
+      dist = Math.sqrt(dx * dx + dz * dz);
+    }
+
+    if (s.kind === 'taxi') {
+      if (s.phase === 'pickup') {
+        if (point && dist <= TAXI_PICKUP_RADIUS) {
+          const drop = this.roadPoint(160, point);
+          s.phase = 'drop';
+          s.timer = 0;
+          s.driven = 0;
+          s.last = { x: point.x, z: point.z };
+          s.drop = drop || { x: point.x + 60, z: point.z };
+          s.marker = s.drop;
+          this.marker = s.marker;
+          this.emit('taxi-pickup');
+        } else if (s.timer >= TAXI_PICKUP_WINDOW) {
+          this.side = null;
+          this.marker = null;
+        }
+        return;
+      }
+
+      if (s.last && point) {
+        const dx = point.x - s.last.x;
+        const dz = point.z - s.last.z;
+        s.driven += Math.sqrt(dx * dx + dz * dz);
+      }
+      if (point) s.last = { x: point.x, z: point.z };
+
+      if (point && dist <= TAXI_DROP_RADIUS) {
+        const raw = TAXI_BASE + s.driven * 2;
+        const cash = Math.max(0, Math.round(raw / 10) * 10);
+        this.addCash(cash);
+        this.taxiCount++;
+        this.side = null;
+        this.marker = null;
+        this.emit('taxi-complete', { cash });
+      }
+      return;
+    }
+
+    if (point && dist <= TRIAL_RADIUS) {
+      this.addCash(TRIAL_PAY);
+      this.trialCount++;
+      this.side = null;
+      this.marker = null;
+      this.emit('trial-complete', { cash: TRIAL_PAY });
+      return;
+    }
+    if (s.timer >= TRIAL_TIME_LIMIT) {
+      this.side = null;
+      this.marker = null;
+      this.emit('trial-fail');
+    }
+  }
+
+  roadPoint(maxDist, origin) {
+    const base = origin || this.playerPoint();
+    const xs = WORLD.gridLinesX || [];
+    const zs = WORLD.gridLinesZ || [];
+    const pool = [];
+    for (let i = 0; i < xs.length; i++) {
+      for (let k = 0; k < zs.length; k++) {
+        const x = xs[i];
+        const z = zs[k];
+        if (!base) {
+          pool.push({ x, z });
+          continue;
+        }
+        const dx = x - base.x;
+        const dz = z - base.z;
+        const d = Math.sqrt(dx * dx + dz * dz);
+        if (d >= 30 && d <= maxDist) pool.push({ x, z });
+      }
+    }
+    if (!pool.length) {
+      if (!xs.length || !zs.length) return null;
+      const x = xs[Math.floor(xs.length / 2)];
+      const z = zs[Math.floor(zs.length / 2)];
+      return { x, z };
+    }
+    return pool[Math.floor(Math.random() * pool.length) % pool.length];
+  }
+
+  updateStashes() {
+    if (this.collected.size >= STASHES.length) return;
+    const point = this.playerPoint();
+    if (!point) return;
+    const r2 = STASH_RADIUS * STASH_RADIUS;
+    for (let i = 0; i < STASHES.length; i++) {
+      if (this.collected.has(i)) continue;
+      const stash = STASHES[i];
+      const dx = point.x - stash.x;
+      const dz = point.z - stash.z;
+      if (dx * dx + dz * dz > r2) continue;
+      this.collected.add(i);
+      this.addCash(STASH_VALUE);
+      try {
+        const effects = this.opts.effects;
+        if (effects && typeof effects.spawnBurst === 'function') {
+          effects.spawnBurst({ x: stash.x, y: 0.7, z: stash.z }, 'impact', 6);
+        }
+      } catch (err) {
+        /* optional */
+      }
+      this.emit('collect', { total: this.collected.size });
+    }
+  }
+
+  updateBeacon(dt) {
+    const mk = this.marker;
+    const beacon = this.beacon;
+    if (beacon) {
+      if (!mk) {
+        if (beacon.visible) beacon.visible = false;
+      } else {
+        beacon.visible = true;
+        beacon.position.set(mk.x, 0, mk.z);
+        this.beaconTime += dt;
+        const pulse = 1 + Math.sin(this.beaconTime * 4) * 0.16;
+        if (this.beaconRing) this.beaconRing.scale.set(pulse, pulse, pulse);
+      }
+    }
+    if (!mk) {
+      this.pulse = 0;
+      return;
+    }
+    this.pulse += dt;
+    if (this.pulse < 0.5) return;
+    this.pulse = 0;
+    try {
+      const effects = this.opts.effects;
+      if (effects && typeof effects.spawnBurst === 'function') {
+        effects.spawnBurst({ x: mk.x, y: 0.55, z: mk.z }, 'dust', 1);
+      }
+    } catch (err) {
+      /* optional */
+    }
+  }
+
+  notify(kind) {
+    try {
+      if (kind === 'shot') this.counters.shots++;
+      else if (kind === 'punch') this.counters.punch++;
+      else if (kind === 'hitCop') this.counters.hitCop++;
+      else if (kind === 'hitPed') this.counters.hitPed++;
+    } catch (err) {
+      /* never throw */
+    }
+  }
+
+  getCurrentObjective() {
+    if (this.active) {
+      const stage = this.active.def.stages[this.active.stage];
+      return stage && typeof stage.text === 'string' ? stage.text : '';
+    }
+    if (this.side) {
+      if (this.side.kind === 'taxi') {
+        return this.side.phase === 'pickup' ? 'PICK UP THE TAXI FARE' : 'DRIVE THE FARE TO THE DROP-OFF';
+      }
+      return 'REACH THE TIME TRIAL MARKER';
+    }
+    return '';
+  }
+
+  getMarker() {
+    if (!this.marker) return null;
+    return { x: this.marker.x, z: this.marker.z };
+  }
+
+  getTurf() {
+    const list = [];
+    for (let i = 0; i < DISTRICTS.length; i++) {
+      const d = DISTRICTS[i];
+      list.push({
+        key: d.key,
+        name: d.name,
+        taken: this.districts.indexOf(d.key) !== -1,
       });
     }
-    this.trial = { stage: 0, checkpoints, timer: 70 };
-    this.emit('trial-start', {});
-    return true;
+    return {
+      taken: this.districts.length,
+      total: 6,
+      finale: !!this.finaleDone,
+      districts: list,
+    };
   }
 
-  updateTrial(step) {
-    const tr = this.trial;
-    tr.timer -= step;
-    if (tr.timer <= 0) {
-      this.trial = null;
-      this.emit('trial-fail', {});
-      return;
-    }
-    const cp = tr.checkpoints[tr.stage];
-    if (!cp) {
-      this.trial = null;
-      return;
-    }
-    if (this.distTo(cp.x, cp.z) > 5.4) return;
-    tr.stage++;
-    if (tr.stage >= tr.checkpoints.length) {
-      this.addCash(260);
-      this.trial = null;
-      this.emit('trial-complete', { cash: 260 });
-    }
+  turfCount() {
+    return this.districts.length;
   }
 
-  // ---------------------------------------------------------------- objective
-  getCurrentObjective() {
-    if (this.mission) {
-      const run = this.mission;
-      const stage = this.currentStage();
-      const loc = (DISTRICTS.find((d) => d.key === run.def.district) || {}).name || '';
-      let base = stage ? stage.label : run.def.title;
-
-      if (run.def.type === 'timed') {
-        base += '  [' + Math.max(0, Math.ceil(run.timer)) + 's]';
-      } else if (run.def.type === 'defend' || run.def.type === 'finale') {
-        base += '  [' + Math.min(run.def.duration, Math.floor(run.timer)) + '/' + run.def.duration + 's]';
-      } else if (run.def.type === 'stealth' && run.warn) {
-        base += '  [lose the police first]';
-      } else if (run.def.type === 'chase' && run.stage === 1) {
-        const stars = this.police ? this.police.getWanted() : 0;
-        base += '  [' + stars + ' star' + (stars === 1 ? '' : 's') + ' left]';
-      }
-      return loc ? base + '  \u2014 ' + loc : base;
-    }
-
-    if (this.taxi) {
-      const target = this.taxi.phase === 0 ? this.taxi.pickup : this.taxi.dropoff;
-      const where = districtForPoint(target.x, target.z);
-      const name = (DISTRICTS.find((d) => d.key === where) || {}).name || where;
-      return this.taxi.phase === 0
-        ? 'TAXI FARE \u2014 pick up the marked fare in ' + name
-        : 'TAXI FARE \u2014 drop the fare in ' + name;
-    }
-
-    if (this.trial) {
-      return 'TIME TRIAL \u2014 checkpoint ' + (this.trial.stage + 1) +
-        '/' + this.trial.checkpoints.length + '  [' + Math.max(0, Math.ceil(this.trial.timer)) + 's]';
-    }
-
-    const next = this.nextMission();
-    if (this.turfCount() >= DISTRICTS.length && !this.completed['portside-takeover']) {
-      return 'THE FINALE IS OPEN \u2014 take Portside (press J)';
-    }
-    if (next) return 'NEXT JOB \u2014 ' + next.title + ' (press J)';
-    return 'MARISOL BAY IS YOURS \u2014 ' + this.collectCount + '/' + COLLECTIBLES.length + ' stashes found';
-  }
-
-  // ------------------------------------------------------------- persistence
   serialize() {
     return {
-      cash: this.getCash(),
-      completed: { ...this.completed },
-      collected: { ...this.collected },
-      turf: { ...this.turf },
-      taken: { ...this.taken },
-      bestTimes: { ...this.bestTimes },
+      version: 1,
+      done: Array.from(this.done),
+      districts: this.districts.slice(),
+      stashes: Array.from(this.collected).sort((a, b) => a - b),
+      taxi: this.taxiCount,
+      trials: this.trialCount,
+      finaleDone: !!this.finaleDone,
     };
   }
 
   apply(data) {
-    if (!data || typeof data !== 'object') return false;
-    if (data.completed && typeof data.completed === 'object') {
-      this.completed = { ...data.completed };
-    }
-    if (data.collected && typeof data.collected === 'object') {
-      this.collected = {};
-      for (const k of Object.keys(data.collected)) {
-        if (data.collected[k]) this.collected[k] = true;
+    if (!data || typeof data !== 'object') return;
+    try {
+      this.done = new Set();
+      if (Array.isArray(data.done)) {
+        for (let i = 0; i < data.done.length; i++) {
+          const id = data.done[i];
+          if (typeof id === 'string' && missionDef(id)) this.done.add(id);
+        }
       }
-    }
-    if (data.turf && typeof data.turf === 'object') {
-      for (let i = 0; i < DISTRICTS.length; i++) {
-        const k = DISTRICTS[i].key;
-        const v = Number(data.turf[k]);
-        this.turf[k] = isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
-      }
-    }
-    if (data.taken && typeof data.taken === 'object') {
-      this.taken = { ...data.taken };
-    }
-    if (data.bestTimes && typeof data.bestTimes === 'object') {
-      this.bestTimes = { ...data.bestTimes };
-    }
-    this.refreshCollectibles();
-    this.updateMarker();
-    return true;
-  }
 
-  get isMissionActive() {
-    return !!this.mission;
+      this.districts = [];
+      if (Array.isArray(data.districts)) {
+        for (let i = 0; i < data.districts.length; i++) {
+          const key = data.districts[i];
+          if (typeof key !== 'string') continue;
+          if (!districtByKey[key]) continue;
+          if (this.districts.indexOf(key) !== -1) continue;
+          this.districts.push(key);
+        }
+      }
+
+      this.collected = new Set();
+      if (Array.isArray(data.stashes)) {
+        for (let i = 0; i < data.stashes.length; i++) {
+          const index = data.stashes[i];
+          if (Number.isInteger(index) && index >= 0 && index < STASHES.length) this.collected.add(index);
+        }
+      }
+
+      this.taxiCount = Math.max(0, Math.floor(finiteNumber(data.taxi, 0)));
+      this.trialCount = Math.max(0, Math.floor(finiteNumber(data.trials, 0)));
+      this.finaleDone = !!data.finaleDone;
+      this.finaleUnlocked = this.finaleDone || this.districts.length >= 6;
+
+      this.active = null;
+      this.side = null;
+      this.marker = null;
+      this.taxiTimer = 0;
+      this.trialTimer = 0;
+
+      if (typeof data.active === 'string') {
+        const def = missionDef(data.active);
+        if (def && !this.done.has(def.id) && this.missionUnlocked(def)) {
+          const taken = def.district ? this.districts.indexOf(def.district) !== -1 : false;
+          if (!taken) this.begin(def, true);
+        }
+      }
+    } catch (err) {
+      /* ignore partial or malformed saves */
+    }
   }
 }

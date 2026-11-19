@@ -14,6 +14,8 @@ import {
 
 const G = {};
 
+const PALM_SPACING = 17;
+
 function geoms() {
   if (!G.box) {
     G.box = new THREE.BoxGeometry(1, 1, 1);
@@ -618,7 +620,7 @@ export function buildWorld(scene) {
   const trunkEntries = [];
   const frondEntries = [];
   const palmSpots = [];
-  for (let z = -214; z <= 214; z += 17) {
+  for (let z = -214; z <= 214; z += PALM_SPACING) {
     palmSpots.push({ x: WORLD.promenadeX - WORLD.promenadeWidth / 2 + 1.4, z: z + rngRange(rng, -1.4, 1.4) });
     if (rng() < 0.6) {
       palmSpots.push({ x: WORLD.sandCenterX + rngRange(rng, -6, 5), z: z + 8 + rngRange(rng, -2, 2) });

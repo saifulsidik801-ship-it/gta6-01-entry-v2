@@ -67,9 +67,15 @@ export function buildCamera(camera, domElement) {
     update(0.016, target, sampleGround);
   }
 
+  function reset() {
+    pitch = CAMERA.pitch;
+    distance = CAMERA.distance;
+  }
+
   return {
     update,
     snap,
+    reset,
     applyOrbit,
     applyZoom,
     get yaw() {

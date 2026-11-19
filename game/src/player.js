@@ -337,5 +337,8 @@ export function buildPlayer(scene, spawn) {
     get facing() {
       return state.facing;
     },
+    get speedKmh() {
+      return Math.hypot(state.vx, state.vz) * 3.6;
+    },
   };
 }
