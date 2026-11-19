@@ -292,6 +292,9 @@ export class Vehicle {
     this.frontWheels = built.frontWheels;
     this.type = built.type;
     this.color = built.color;
+    this.width = built.width;
+    this.length = built.length;
+    this.wheelRadius = built.wheelRadius;
 
     this.x = opts.x || 0;
     this.z = opts.z || 0;

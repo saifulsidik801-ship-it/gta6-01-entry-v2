@@ -163,6 +163,14 @@ function blocked(colliders, x, z) {
   return false;
 }
 
+function clampX(v) {
+  return Math.max(WORLD.minX + 1, Math.min(WORLD.maxX - 1, v));
+}
+
+function clampZ(v) {
+  return Math.max(WORLD.minZ + 1, Math.min(WORLD.maxZ - 1, v));
+}
+
 function inIdleZone(x, z) {
   if (Math.abs(z) > WORLD.half - 8) return false;
   const promenade = Math.abs(x - WORLD.promenadeX) <= WORLD.promenadeWidth / 2 + 1.5;
@@ -267,7 +275,122 @@ export class Pedestrians {
       idleT: 0,
       shiftT: 0,
       baseYaw: 0,
+      fleeT: 0,
+      fleeFromX: 0,
+      fleeFromZ: 0,
     };
+  }
+
+  // Push a local away from a hit: walkers slide along their pavement band,
+  // idlers are shoved freely, both refusing to enter a collider.
+  knock(p, dirX, dirZ, force = 1.1) {
+    const d = Math.hypot(dirX, dirZ) || 1;
+    const nx = dirX / d;
+    const nz = dirZ / d;
+    if (p.state !== 'walk') {
+      const tx = p.x + nx * force;
+      const tz = p.z + nz * force;
+      if (!blocked(this.colliders, tx, tz)) {
+        p.x = clampX(tx);
+        p.z = clampZ(tz);
+        p.homeX = clampX(p.x);
+        p.homeZ = clampZ(p.z);
+      }
+      return;
+    }
+
+    const alongComp = p.axis === 'x' ? nx : nz;
+    const latComp = p.axis === 'x' ? nz : nx;
+    const prevAlong = p.along;
+    const prevLat = p.lat;
+    const lo = p.axis === 'x' ? WALK_X0 : WALK_Z0;
+    const hi = p.axis === 'x' ? WALK_X1 : WALK_Z1;
+
+    p.along = Math.max(lo, Math.min(hi, p.along + alongComp * force));
+    p.lat = Math.max(LAT_MIN, Math.min(LAT_MAX, p.lat + latComp * force));
+    place(p);
+    if (blocked(this.colliders, p.x, p.z)) {
+      p.along = prevAlong;
+      p.lat = prevLat;
+      place(p);
+    }
+  }
+
+  // Send nearby locals running from a point (punch/shots/car strikes).
+  scare(x, z, radius = 10, duration = 2.5) {
+    const r2 = radius * radius;
+    for (let i = 0; i < this.peds.length; i++) {
+      const p = this.peds[i];
+      const dx = p.x - x;
+      const dz = p.z - z;
+      if (dx * dx + dz * dz > r2) continue;
+      p.fleeT = Math.max(p.fleeT, duration);
+      p.fleeFromX = x;
+      p.fleeFromZ = z;
+    }
+  }
+
+  _flee(p, dt) {
+    const speed = 4.8;
+    let ax = p.x - p.fleeFromX;
+    let az = p.z - p.fleeFromZ;
+    const d = Math.hypot(ax, az) || 1;
+    ax /= d;
+    az /= d;
+
+    // Try the away vector, then progressively wider detours: pavements are
+    // narrow, so a straight flee often runs into a facade and freezes.
+    let moved = false;
+    for (let i = 0; i < 8 && !moved; i++) {
+      const sign = i % 2 === 0 ? 1 : -1;
+      const angle = sign * Math.ceil(i / 2) * (Math.PI / 4);
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      const dx = ax * c - az * s;
+      const dz = ax * s + az * c;
+      const nx = p.x + dx * speed * dt;
+      const nz = p.z + dz * speed * dt;
+      if (blocked(this.colliders, nx, nz)) continue;
+      if (nx < WORLD.minX + 1 || nx > WORLD.maxX - 1) continue;
+      if (nz < WORLD.minZ + 1 || nz > WORLD.maxZ - 1) continue;
+      p.x = nx;
+      p.z = nz;
+      p.heading = Math.atan2(dx, dz);
+      moved = true;
+    }
+
+    p.phase += speed * dt * STRIDE;
+    p.fleeT -= dt;
+
+    if (p.fleeT <= 0) {
+      p.fleeT = 0;
+      if (p.state === 'walk') {
+        const lo = p.axis === 'x' ? WALK_X0 : WALK_Z0;
+        const hi = p.axis === 'x' ? WALK_X1 : WALK_Z1;
+        const along = p.axis === 'x' ? p.x : p.z;
+        const snapped = Math.max(lo + 2, Math.min(hi - 2, along));
+        const perp = p.line + p.side * SW_OFF;
+        const sx = p.axis === 'x' ? snapped : perp;
+        const sz = p.axis === 'x' ? perp : snapped;
+        if (blocked(this.colliders, sx, sz)) {
+          p.fleeT = 1.2;
+        } else {
+          p.x = sx;
+          p.z = sz;
+          p.along = snapped;
+          p.lat = 0;
+          place(p);
+          this._nextCorner(p);
+        }
+      } else {
+        p.homeX = p.x;
+        p.homeZ = p.z;
+        p.tx = p.x;
+        p.tz = p.z;
+        p.shiftT = 0;
+        p.idleT = 3;
+      }
+    }
   }
 
   _initWalker(p, rng, index) {
@@ -574,7 +697,8 @@ export class Pedestrians {
     for (let i = 0; i < peds.length; i++) {
       const p = peds[i];
       if (p.slowT > 0) p.slowT -= dt;
-      if (p.state === 'walk') this._step(p, dt, rng);
+      if (p.fleeT > 0) this._flee(p, dt);
+      else if (p.state === 'walk') this._step(p, dt, rng);
       else this._idle(p, dt);
     }
 
@@ -582,7 +706,7 @@ export class Pedestrians {
 
     for (let i = 0; i < peds.length; i++) {
       const p = peds[i];
-      const walking = p.state === 'walk' || p.shiftT > 0;
+      const walking = p.state === 'walk' || p.shiftT > 0 || p.fleeT > 0;
       const swing = Math.sin(p.phase);
 
       if (walking) {

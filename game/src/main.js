@@ -9,6 +9,9 @@ import { buildInput } from './input.js';
 import { spawnParkedCars, Vehicle } from './vehicle.js';
 import { Traffic } from './traffic.js';
 import { Pedestrians } from './pedestrians.js';
+import { Police } from './police.js';
+import { Combat } from './combat.js';
+import { Effects } from './effects.js';
 
 const canvas = document.getElementById('view');
 
@@ -50,6 +53,22 @@ const traffic = new Traffic(scene, world);
 const pedestrians = new Pedestrians(scene, world);
 
 let driving = null;
+let cash = 1200;
+
+const playerSnapshot = () => ({
+  position: driving ? driving.group.position : player.position,
+  driving: driving || false,
+  speed: driving ? driving.speed : player.state.speed,
+  heading: driving ? driving.heading : player.state.facing,
+  facing: player.state.facing,
+  camYaw: cam.yaw,
+  vx: driving ? driving.vx : player.state.vx,
+  vz: driving ? driving.vz : player.state.vz,
+});
+
+const effects = new Effects(scene);
+const combat = new Combat(scene, pedestrians, effects);
+const police = new Police(scene, world, playerSnapshot);
 
 const playerColliders = [];
 const carObstacles = parkedCars.map((car) => ({ x: car.x, z: car.z }));
@@ -70,6 +89,9 @@ window.MARISOL = {
   parkedCars,
   traffic,
   pedestrians,
+  police,
+  combat,
+  effects,
   get driving() {
     return driving;
   },
@@ -123,8 +145,11 @@ function sampleGround(x, z) {
 }
 
 function carBox(car) {
-  const hw = car.car.width / 2;
-  const hl = car.car.length / 2;
+  const spec = car.car || {};
+  const width = typeof car.width === 'number' ? car.width : spec.width;
+  const length = typeof car.length === 'number' ? car.length : spec.length;
+  const hw = width / 2;
+  const hl = length / 2;
   const c = Math.abs(Math.cos(car.heading));
   const s = Math.abs(Math.sin(car.heading));
   const ex = c * hw + s * hl;
@@ -179,6 +204,7 @@ function enterCar(car) {
     car.colliders.push(carBox(parkedCars[i]));
   }
   rebuildPlayerColliders();
+  police.addHeat(1, 'grand-theft-auto');
 }
 
 function exitCar() {
@@ -195,8 +221,8 @@ function exitCar() {
   const fz = Math.cos(car.heading);
   const rx = Math.cos(car.heading);
   const rz = -Math.sin(car.heading);
-  const side = car.car.width / 2 + 1.15;
-  const back = car.car.length / 2 + 1.1;
+  const side = (car.width || car.car.width) / 2 + 1.15;
+  const back = (car.length || car.car.length) / 2 + 1.1;
   const candidates = [
     [car.x + rx * side, car.z + rz * side],
     [car.x - rx * side, car.z - rz * side],
@@ -283,6 +309,168 @@ function updateHud() {
   } else {
     setHint(nearestParkedCar() ? 'E - Enter car' : '');
   }
+  updateWantedHud();
+}
+
+function updateWantedHud() {
+  const node = window.MARISOL.wanted;
+  if (!node) return;
+  const stars = police.getWanted();
+  const text = stars > 0 ? '\u2605'.repeat(stars) + '\u2606'.repeat(5 - stars) : '';
+  if (node.textContent !== text) node.textContent = text;
+  node.style.color = stars >= 4 ? '#ff6b5a' : '#ffd166';
+  node.style.opacity = stars > 0 ? '0.95' : '0.35';
+}
+
+function respawnPlayer(options = {}) {
+  const car = driving;
+  if (car) {
+    driving = null;
+    car.colliders = world.colliders;
+    car.setPose(car.x, car.z, car.heading);
+    car.parked = true;
+    car.handbrake = true;
+  }
+  player.root.visible = true;
+  player.setPosition(SPAWN.x, sampleGround(SPAWN.x, SPAWN.z), SPAWN.z);
+  player.state.facing = SPAWN.facing;
+  player.state.vx = 0;
+  player.state.vz = 0;
+  combat.state.health = 100;
+  combat.state.damageT = 99;
+  rebuildPlayerColliders();
+  cam.yaw = SPAWN.facing + Math.PI;
+  cam.snap(player.position, sampleGround);
+  if (options.clearWanted) {
+    police.setWanted(0);
+    police.clear();
+  }
+}
+
+police.onBusted = ({ fine = 0 } = {}) => {
+  cash = Math.max(0, cash - (fine || 0));
+  respawnPlayer();
+};
+
+combat.onDeath = ({ cash: loss = 0 } = {}) => {
+  cash = Math.max(0, cash - (loss || 0));
+  respawnPlayer({ clearWanted: true });
+};
+
+combat.onShoot = () => {
+  police.addHeat(1, 'shooting');
+};
+
+combat.onHitCop = () => {
+  police.addHeat(1, 'assaulting-officer');
+};
+
+combat.onHitPed = () => {
+  police.addHeat(1, 'assault');
+};
+
+let effectsTimer = 0;
+let exhaustTimer = 0;
+let skidTimer = 0;
+let wasGrounded = true;
+
+function updateEffects(dt, movement) {
+  effectsTimer += dt;
+
+  if (driving) {
+    if (driving.collided && effectsTimer > 0.35) {
+      effectsTimer = 0;
+      effects.spawnBurst(
+        { x: driving.x, y: 0.7, z: driving.z }, 'impact', 8,
+      );
+    }
+
+    exhaustTimer += dt;
+    if (exhaustTimer > 0.16) {
+      exhaustTimer = 0;
+      const fx = Math.sin(driving.heading);
+      const fz = Math.cos(driving.heading);
+      const back = (driving.length || 4.6) / 2;
+      effects.spawnBurst(
+        { x: driving.x - fx * back, y: 0.45, z: driving.z - fz * back },
+        'exhaust', 1,
+      );
+    }
+
+    skidTimer += dt;
+    const sliding = movement.jump || Math.abs(driving.steerVisual) > 0.75;
+    if (sliding && Math.abs(driving.speed) > 7 && skidTimer > 0.07) {
+      skidTimer = 0;
+      const side = (driving.width || 1.92) / 2;
+      const rx = Math.cos(driving.heading);
+      const rz = -Math.sin(driving.heading);
+      effects.spawnBurst(
+        { x: driving.x - rx * side, y: 0.15, z: driving.z - rz * side }, 'skid', 1,
+      );
+      effects.spawnBurst(
+        { x: driving.x + rx * side, y: 0.15, z: driving.z + rz * side }, 'skid', 1,
+      );
+    }
+  } else {
+    const grounded = player.state.grounded;
+    if (grounded && !wasGrounded) {
+      effects.spawnBurst(
+        { x: player.position.x, y: 0.14, z: player.position.z }, 'dust', 8,
+      );
+    }
+    wasGrounded = grounded;
+  }
+
+  effects.update(dt);
+}
+
+let crimeTick = 0;
+
+function updateCrime(dt) {
+  crimeTick += dt;
+  if (crimeTick < 0.12) return;
+  const elapsedTick = crimeTick;
+  crimeTick = 0;
+
+  const peds = pedestrians.peds;
+  for (let i = 0; i < traffic.cars.length; i++) {
+    const car = traffic.cars[i];
+    if (car.heatCd > 0) car.heatCd = Math.max(0, car.heatCd - elapsedTick);
+  }
+  for (let i = 0; i < peds.length; i++) {
+    if (peds[i].heatCd > 0) peds[i].heatCd = Math.max(0, peds[i].heatCd - elapsedTick);
+  }
+
+  if (!driving || Math.abs(driving.speed) < 4) return;
+
+  const dx0 = driving.x;
+  const dz0 = driving.z;
+  const speed = Math.abs(driving.speed);
+
+  for (let i = 0; i < traffic.cars.length; i++) {
+    const other = traffic.cars[i];
+    if (other.heatCd > 0) continue;
+    const dx = other.x - dx0;
+    const dz = other.z - dz0;
+    if (dx * dx + dz * dz > 4.2 * 4.2) continue;
+    other.heatCd = 4;
+    police.addHeat(1, 'traffic-impact');
+    effects.spawnBurst({ x: other.x, y: 0.8, z: other.z }, 'impact', 6);
+  }
+
+  for (let i = 0; i < peds.length; i++) {
+    const ped = peds[i];
+    if (ped.heatCd > 0) continue;
+    const dx = ped.x - dx0;
+    const dz = ped.z - dz0;
+    if (dx * dx + dz * dz > 2.6 * 2.6) continue;
+    ped.heatCd = 4;
+    police.addHeat(1, 'hit-pedestrian');
+    if (pedestrians.scare) pedestrians.scare(ped.x, ped.z, 14, 3);
+    if (speed > 6) {
+      effects.spawnBurst({ x: ped.x, y: 1.0, z: ped.z }, 'dust', 6);
+    }
+  }
 }
 
 const FIXED_STEP = 1 / 60;
@@ -316,6 +504,13 @@ function step(dt) {
 
   traffic.update(dt, driving ? driving.group.position : player.position, carObstacles);
   pedestrians.update(dt);
+
+  const snapshot = playerSnapshot();
+  combat.update(dt, input, snapshot, police);
+  police.update(dt);
+  updateCrime(dt);
+  updateEffects(dt, movement);
+
   updateCameraTarget(dt);
   updateHud();
   world.update(dt);
