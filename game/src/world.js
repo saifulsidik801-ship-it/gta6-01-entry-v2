@@ -177,6 +177,7 @@ export function buildWorld(scene) {
   }
 
   const districtAt = (x, z) => districtForPoint(x, z).name;
+  const districtByKeyLookup = (key) => districtByKey[key] || null;
 
   const LAND_X0 = WORLD.landEdgeX;
   const LAND_X1 = WORLD.maxX;
@@ -749,6 +750,7 @@ export function buildWorld(scene) {
     boats,
     water,
     districtAt,
+    districtByKey: districtByKeyLookup,
     districts: DISTRICTS,
     update,
     dispose,

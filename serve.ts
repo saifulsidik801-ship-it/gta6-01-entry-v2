@@ -32,6 +32,7 @@ const CONTENT_TYPES: Record<string, string> = {
   '.gltf': 'model/gltf+json',
   '.bin': 'application/octet-stream',
   '.wasm': 'application/wasm',
+  '.map': 'application/json; charset=utf-8',
   '.wav': 'audio/wav',
   '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg',

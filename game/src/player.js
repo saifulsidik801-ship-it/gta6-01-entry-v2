@@ -316,13 +316,13 @@ export function buildPlayer(scene, spawn) {
   }
 
   function setPosition(x, y, z) {
-    state.x = x;
-    state.y = y;
-    state.z = z;
+    state.x = Number.isFinite(x) ? x : state.x;
+    state.y = Number.isFinite(y) ? y : 0;
+    state.z = Number.isFinite(z) ? z : state.z;
     state.vx = 0;
     state.vz = 0;
     state.vy = 0;
-    root.position.set(x, y, z);
+    root.position.set(state.x, state.y, state.z);
   }
 
   return {

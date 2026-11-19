@@ -26,6 +26,10 @@ const outputShots = join(outputDir, 'screenshots');
 
 mkdirSync(outputDir, { recursive: true });
 
+if (!existsSync(sourceGame)) {
+  throw new Error(`missing game/ folder next to main.ts: ${sourceGame}`);
+}
+
 cpSync(sourceGame, outputGame, { recursive: true });
 if (existsSync(sourceShots)) cpSync(sourceShots, outputShots, { recursive: true });
 
@@ -33,13 +37,17 @@ if (existsSync(sourceShots)) cpSync(sourceShots, outputShots, { recursive: true 
 // source text under 160 KiB, at most 4 screenshots of 256 KiB each, at most 993 files and
 // 48 MiB under game/, and no path under game/ longer than 1000 bytes.
 // The dossier is byte-for-byte deterministic across runs: identical inputs always produce identical output.
-writeFileSync(
-  join(outputDir, 'dossier.json'),
-  buildDossier(outputDir, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 50331648,
-    game_path_max_bytes: 1000,
-  }),
-);
+const dossier = buildDossier(outputDir, {
+  text_max_bytes: 163840,
+  screenshots: { max: 4, max_bytes: 262144 },
+  game_max_files: 993,
+  game_max_bytes: 50331648,
+  game_path_max_bytes: 1000,
+});
+
+if (!dossier || dossier.length === 0) {
+  throw new Error(`dossier is empty; check the game/ folder under ${outputDir}`);
+}
+
+writeFileSync(join(outputDir, 'dossier.json'), dossier);
+console.log(`wrote dossier.json (${Buffer.byteLength(dossier)} bytes) to ${outputDir}`);

@@ -274,7 +274,7 @@ window.MARISOL = {
   shot: shot || DEFAULTS.shot,
   shotStage: null,
   ready: false,
-  version: 'r4',
+  version: 'r4b',
 };
 
 window.MARISOL.dom = {};

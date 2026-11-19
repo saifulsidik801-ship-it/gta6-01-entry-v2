@@ -112,7 +112,11 @@ export function buildInput(domElement) {
 
   function onBlur() {
     for (const k of Object.keys(keys)) keys[k] = false;
+    for (const k of Object.keys(pressed)) pressed[k] = false;
     mouse.dragging = false;
+    mouse.dx = 0;
+    mouse.dy = 0;
+    mouse.wheel = 0;
   }
 
   window.addEventListener('keydown', onKeyDown);

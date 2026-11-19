@@ -24,6 +24,7 @@ export function buildCamera(camera, domElement) {
   }
 
   function applyZoom(steps) {
+    if (!Number.isFinite(steps) || steps === 0) return;
     distance *= Math.pow(CAMERA.zoomStep, steps);
     distance = Math.max(CAMERA.minDistance, Math.min(CAMERA.maxDistance, distance));
   }

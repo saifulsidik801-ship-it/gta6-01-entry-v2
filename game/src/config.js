@@ -149,6 +149,12 @@ export const DISTRICTS = [
   },
 ];
 
+export const TURF = {
+  districtCount: 6,
+  incomePerDistrict: 1500,
+  heatPerTakeover: 1,
+};
+
 export const PLAYER = {
   walkSpeed: 6.0,
   runSpeed: 11.2,

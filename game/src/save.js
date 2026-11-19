@@ -1,56 +1,87 @@
-// MARISOL BAY - localStorage persistence for turf progress and options.
+// MARISOL BAY - persistent save slot in localStorage.
+// Everything here is best-effort: a broken or missing store must never throw
+// into the game loop, so every storage touch is guarded.
 
-const SAVE_KEY = 'marisol-bay-save-v1';
+import { SAVE_KEY } from './config.js';
+
+const VERSION = 1;
 
 function storage() {
   try {
-    if (typeof localStorage === 'undefined' || !localStorage) return null;
-    return localStorage;
+    if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
   } catch (err) {
-    return null;
+    // Access itself can throw in locked-down browsers.
   }
+  return null;
+}
+
+function isPlainRecord(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export class Save {
-  constructor() {
-    this.key = SAVE_KEY;
+  constructor() {}
+
+  // Persist a snapshot. Returns true when the write landed, false otherwise.
+  save(data) {
+    try {
+      if (!isPlainRecord(data)) return false;
+
+      const payload = Object.assign({}, data, {
+        version: VERSION,
+        savedAt: new Date().toISOString(),
+      });
+
+      let text;
+      try {
+        text = JSON.stringify(payload);
+      } catch (err) {
+        return false; // circular or otherwise not JSON-safe
+      }
+      if (typeof text !== 'string') return false;
+
+      const store = storage();
+      if (!store) return false;
+      store.setItem(SAVE_KEY, text);
+      return true;
+    } catch (err) {
+      return false;
+    }
   }
 
+  // Returns the stored object for a compatible save, null for anything else.
   load() {
-    const store = storage();
-    if (!store) return null;
     try {
-      const raw = store.getItem(this.key);
-      if (typeof raw !== 'string' || !raw) return null;
-      const data = JSON.parse(raw);
-      if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
-      return data;
+      const store = storage();
+      if (!store) return null;
+
+      const text = store.getItem(SAVE_KEY);
+      if (typeof text !== 'string' || text.length === 0) return null;
+
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (err) {
+        return null; // corrupt payload
+      }
+
+      if (!isPlainRecord(parsed)) return null;
+      if (parsed.version !== VERSION) return null;
+
+      return parsed;
     } catch (err) {
       return null;
     }
   }
 
-  save(data) {
-    const store = storage();
-    if (!store) return false;
-    try {
-      const raw = JSON.stringify(data);
-      if (typeof raw !== 'string') return false;
-      store.setItem(this.key, raw);
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }
-
+  // Drop the slot; silently ignores an unavailable store.
   clear() {
-    const store = storage();
-    if (!store) return false;
     try {
-      store.removeItem(this.key);
-      return true;
+      const store = storage();
+      if (!store) return;
+      store.removeItem(SAVE_KEY);
     } catch (err) {
-      return false;
+      // Nothing sensible to do here.
     }
   }
 }
