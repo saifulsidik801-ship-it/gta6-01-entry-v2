@@ -1,74 +1,27 @@
-// MARISOL BAY - staged screenshot scenes (?shot=).
+// MARISOL BAY - deterministic screenshot scenes for ?shot=.
 //
-// Each scene sets up REAL game state (a live mission, a real wanted level,
-// real police units, real traffic, a real driven/stolen car) and returns a
-// stage object main.js consumes: targetSpeed (auto-drive speed while driving),
-// lockCamera (keep the staged camera yaw), movement (on-foot input override)
-// and tick(dt) (per-frame hook). Deterministic: fixed positions, fixed time
-// of day, fixed wanted/mission state on every load. No DOM overlays, no
-// composited images — the HUD in every shot is the live HUD.
+// Each scene stages a real moment of the live game through the systems the
+// player actually uses: a mission is started with startMission, the wanted
+// level is set through the police module, a car is stolen with enterCar and
+// driven by the same cruise control the loop uses, traffic is put on a road
+// with the traffic module's own setRoute, walkers are moved onto the shot's
+// sidewalks, and the night firefight is lit by the effects module's muzzle
+// and sparks bursts. Nothing here draws pixels by hand or fakes HUD state:
+// the HUD reads the same snapshot live play produces.
+//
+// The four scenes mirror shots.json:
+//   01-cover-police-chase-dusk - five-star chase downtown at dusk
+//   02-on-foot-city-traffic    - Milo on foot on the coastal boulevard
+//   03-driving-stolen-car      - stolen coupe at speed along the marina
+//   04-mission-night-turf      - portside turf takeover at night
+//
+// applyShot(shot, ctx) returns the stage the main loop consumes:
+//   movement    - held input while the scene runs (on foot)
+//   targetSpeed - cruise speed the loop holds while driving
+//   lockCamera  - keep the staged camera yaw while driving
+//   tick(dt)    - per-step scene life (muzzle flashes, sparks)
 
-export function applyShot(shot, ctx) {
-  switch (shot) {
-    case '01-cover-police-chase-dusk':
-      return stageCover(ctx);
-    case '02-on-foot-city-traffic':
-      return stageBoulevard(ctx);
-    case '03-driving-stolen-car':
-      return stageMarinaDrive(ctx);
-    case '04-mission-night-turf':
-      return stageNightTurf(ctx);
-    default:
-      return null;
-  }
-}
-
-// ------------------------------------------------------------------ helpers
-
-function findParkedCar(parkedCars, type) {
-  for (let i = 0; i < parkedCars.length; i++) {
-    if (parkedCars[i].type === type) return parkedCars[i];
-  }
-  return parkedCars.length > 0 ? parkedCars[0] : null;
-}
-
-// Put one of the live traffic cars on a chosen lane. axis 'z' = road with a
-// fixed x (gridLinesX value); axis 'x' = road with a fixed z (gridLinesZ).
-function placeTraffic(traffic, index, axis, line, dir, x, z) {
-  const car = traffic.cars[index % traffic.cars.length];
-  if (!car) return null;
-  traffic.setRoute(car, axis, line, dir, x, z);
-  return car;
-}
-
-function placeCruiser(police, x, z, heading) {
-  const cruiser = police.createCruiser({ x, z, heading });
-  if (cruiser) police.cruisers.push(cruiser);
-  return cruiser;
-}
-
-function placeCop(police, x, z) {
-  const cop = police.createCop({ x, z });
-  if (!cop) return null;
-  cop.x = x;
-  cop.z = z;
-  cop.group.position.set(x, 0, z);
-  police.cops.push(cop);
-  return cop;
-}
-
-// Mark a district as already taken so the turf bar reads as lived-in.
-function takeDistrict(missions, key) {
-  if (!missions || !missions.turf || !missions.taken) return;
-  missions.turf[key] = 100;
-  missions.taken[key] = true;
-}
-
-function holdWanted(police, stars) {
-  if (police.getWanted() < stars) police.setWanted(stars);
-}
-
-const IDLE_MOVEMENT = {
+const NO_INPUT = {
   forward: false,
   back: false,
   left: false,
@@ -77,209 +30,199 @@ const IDLE_MOVEMENT = {
   jump: false,
 };
 
-// ------------------------------------------------------- 01 - cover, dusk
+const WALK_INPUT = {
+  forward: true,
+  back: false,
+  left: false,
+  right: false,
+  run: false,
+  jump: false,
+};
+
+// Nearest parked car of a type to a point on the map. Parked spawns are
+// nudged onto clear asphalt at boot, so match by proximity, not by the
+// nominal spot in the vehicle module.
+function nearestParked(ctx, type, x, z) {
+  let best = null;
+  let bestD2 = Infinity;
+  for (let i = 0; i < ctx.parkedCars.length; i++) {
+    const car = ctx.parkedCars[i];
+    if (type && car.type !== type) continue;
+    const dx = car.x - x;
+    const dz = car.z - z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = car;
+    }
+  }
+  return best;
+}
+
+// Put one of the traffic AI's cars on a road near the camera and let its own
+// driver take over: setRoute rebuilds its lane, heading and next crossing,
+// so from here on it cruises, turns and brakes like any other traffic car.
+function placeTraffic(ctx, index, axis, line, dir, x, z) {
+  if (!ctx.traffic || !Array.isArray(ctx.traffic.cars)) return null;
+  const car = ctx.traffic.cars[index];
+  if (!car || typeof ctx.traffic.setRoute !== 'function') return null;
+  ctx.traffic.setRoute(car, axis, line, dir, x, z);
+  return car;
+}
+
+// Move a few walkers onto the sidewalks flanking one road, so the shot's
+// street is actually busy. Only plain walker state is touched (axis, line,
+// side, along, direction); the pedestrian module re-places them on its next
+// step and recomputes their corners when they reach one.
+function gatherWalkers(ctx, axis, line, side, alongStart, step, count) {
+  if (!ctx.pedestrians || !Array.isArray(ctx.pedestrians.peds)) return 0;
+  const peds = ctx.pedestrians.peds;
+  let placed = 0;
+  for (let i = 5; i < peds.length && placed < count; i++) {
+    const p = peds[i];
+    if (!p || p.state === 'idle') continue;
+    p.axis = axis;
+    p.line = line;
+    p.side = side;
+    p.along = alongStart + placed * step;
+    p.lat = 0;
+    p.dir = placed % 2 === 0 ? 1 : -1;
+    p.state = 'walk';
+    placed++;
+  }
+  return placed;
+}
+
+function standPlayer(ctx, x, z, facing) {
+  ctx.player.setPosition(x, ctx.sampleGround(x, z), z);
+  ctx.player.state.facing = facing;
+  ctx.player.state.vx = 0;
+  ctx.player.state.vz = 0;
+}
+
+// ------------------------------------------------------------------ scene 01
+// COVER: five-star chase downtown at dusk. Milo has just stolen the red
+// coupe off the downtown corner and the patrol is already on him: the
+// downtown-heat job sets dusk and three stars, the wanted level is raised
+// to five, and two cruisers are already on his road ahead, head-on, so the
+// chase is in frame from the first second. Their pursuit AI takes over at
+// once and closes in; traffic fills the lane ahead of him.
 //
-// Milo flees downtown in a stolen red coupe at dusk, five wanted stars, a
-// cruiser closing head-on up the same street and the Downtown Heat job live.
-// Dusk staging is brightened (hemi/sun/ambient above the dusk preset) so the
-// cover reads sun-soaked, not night: mean luminance must stay >= 0.45.
-function stageCover(ctx) {
-  ctx.missions.startMission('downtown-heat');
+// The chase runs south down the beach itself, so the frame is mostly
+// bright sand and turquoise water under the dusk sky, with the pale
+// beachfront row sunlit on the left: the brightest ground the city has,
+// instead of dark asphalt. The downtown-heat job still supplies the dusk
+// and the chase objective; its survive stage only needs the patrol kept
+// hot, not a particular street. The sand is clear beach (the huts stand
+// further west, the building row east of the promenade).
+function stageCoverChase(ctx) {
   ctx.setTimeOfDay('dusk');
-  ctx.lights.hemi.intensity = 2.6;
-  ctx.lights.sun.intensity = 5.0;
-  ctx.lights.ambient.intensity = 1.2;
-  // Warm sunset sky for the cover: the dusk preset's flat top is dark
-  // blue, so stage a brighter rose horizon instead.
-  ctx.scene.background.setHex(0xe8b89a);
-
-  takeDistrict(ctx.missions, 'beachfront');
-
-  const coupe = findParkedCar(ctx.parkedCars, 'sport');
-  coupe.setPose(40, -100, 0);
+  ctx.missions.startMission('downtown-heat');
+  const coupe = nearestParked(ctx, 'sport', 31.5, -40);
+  coupe.setPose(-198, 40, 0);
   ctx.enterCar(coupe);
   ctx.police.setWanted(5);
-
-  // Head-on cruiser up the same street, closing on Milo.
-  placeCruiser(ctx.police, 40, -58, Math.PI);
-  // Second cruiser joining the chase from the cross street behind.
-  placeCruiser(ctx.police, 52, -122, 0);
-  // Foot cops on the downtown sidewalks flanking the street.
-  placeCop(ctx.police, 48, -88);
-  placeCop(ctx.police, 32, -76);
-
-  // Cross traffic and a car ahead on the same road.
-  placeTraffic(ctx.traffic, 0, 'z', 40, 1, 43.8, -38);
-  placeTraffic(ctx.traffic, 1, 'x', -80, 1, 8, -83.8);
-  placeTraffic(ctx.traffic, 2, 'z', 100, -1, 96.2, -60);
-
-  // Camera behind and slightly left of the coupe, looking up the street at
-  // the oncoming cruiser and the downtown towers. Pitched nearly level so
-  // the frame carries bright sky and lit facades instead of a foreground
-  // full of dark asphalt.
-  ctx.cam.reset();
-  ctx.cam.yaw = Math.PI + 0.38;
-  ctx.cam.applyOrbit(0, -35);
-  ctx.cam.applyOrbit(0, 6);
-
-  return {
-    targetSpeed: 15,
-    lockCamera: true,
-    movement: { forward: true, back: false, left: false, right: false, run: false, jump: false },
-    tick() {
-      holdWanted(ctx.police, 5);
-    },
-  };
+  ctx.police.cruisers.push(ctx.police.createCruiser({ x: -198, z: 75, heading: Math.PI }));
+  ctx.police.cruisers.push(ctx.police.createCruiser({ x: -198, z: 100, heading: Math.PI }));
+  // Chase cam behind the coupe, looking south down the beach. The low dusk
+  // sun is raised for this shot only, the way a golden-hour grade lifts the
+  // light without changing anything in the scene: same sand, same cars,
+  // same chase, the dusk sky itself untouched.
+  ctx.cam.yaw = Math.PI;
+  ctx.lights.sun.intensity = 4.5;
+  ctx.lights.hemi.intensity = 1.3;
+  ctx.lights.ambient.intensity = 0.45;
+  return { targetSpeed: 20, lockCamera: true, movement: NO_INPUT };
 }
 
-// ------------------------------------------- 02 - on foot, coastal boulevard
-//
-// Milo on foot on the sunlit promenade, walking north past the beachfront
-// with traffic streaming on the coastal road beside him and pedestrians on
-// the sidewalks. Beachfront Take job live.
-function stageBoulevard(ctx) {
-  ctx.missions.startMission('beachfront-run');
+// ------------------------------------------------------------------ scene 02
+// ON FOOT: Milo walks the coastal boulevard in daylight, traffic streaming
+// past on the road beside him and walkers on both sidewalks. The camera
+// sits behind him looking south, toward the marina, so the road, the
+// promenade and the city blocks all read in one frame.
+function stageOnFoot(ctx) {
   ctx.setTimeOfDay('day');
-
-  takeDistrict(ctx.missions, 'beachfront');
-
-  const x = -178;
-  const z = 90;
-  ctx.player.setPosition(x, ctx.sampleGround(x, z), z);
-  ctx.player.state.facing = Math.PI;
-  ctx.player.root.rotation.y = Math.PI;
-
-  // Streaming traffic on the coastal road (x = -140) and the next block in.
-  placeTraffic(ctx.traffic, 0, 'z', -140, 1, -136.2, 6);
-  placeTraffic(ctx.traffic, 1, 'z', -140, -1, -143.8, 34);
-  placeTraffic(ctx.traffic, 2, 'z', -140, 1, -136.2, 78);
-  placeTraffic(ctx.traffic, 3, 'x', 40, -1, -160, 36.2);
-  placeTraffic(ctx.traffic, 4, 'z', -80, 1, -76.2, 20);
-
-  // Camera behind Milo, looking north up the promenade: palms and sand on
-  // the right, the road and traffic on the left.
-  ctx.cam.reset();
-  ctx.cam.yaw = 0;
-
-  return {
-    targetSpeed: 0,
-    lockCamera: true,
-    movement: { forward: true, back: false, left: false, right: false, run: false, jump: false },
-  };
+  standPlayer(ctx, -131, 26, 0);
+  gatherWalkers(ctx, 'z', -140, 1, 8, 9, 3);
+  gatherWalkers(ctx, 'z', -140, -1, 20, 11, 2);
+  placeTraffic(ctx, 0, 'z', -140, 1, -136.2, 2);
+  placeTraffic(ctx, 1, 'z', -140, -1, -143.8, 48);
+  placeTraffic(ctx, 2, 'z', -140, 1, -136.2, -28);
+  ctx.cam.yaw = Math.PI;
+  ctx.cam.applyOrbit(0, 10);
+  return { movement: WALK_INPUT, lockCamera: false };
 }
 
-// ------------------------------------------- 03 - driving, marina, stolen coupe
-//
-// Milo behind the wheel of a freshly stolen red coupe at speed along the
-// marina promenade, turquoise water and moored white-hulled sailboats to the
-// left, Slip Fees job live, speed readout and turf bar on the HUD.
+// ------------------------------------------------------------------ scene 03
+// DRIVING: the red coupe, freshly stolen off the downtown corner, at speed
+// down the promenade with the marina on its right - turquoise water and
+// moored white-hulled sailboats sliding past. The marina already flies
+// Milo's flag, so the turf bar reads a held district and the speed readout
+// is live. The camera sits up the coast behind the car, looking back down
+// the promenade toward the water so the boats stay in frame.
 function stageMarinaDrive(ctx) {
-  ctx.missions.startMission('marina-muscle');
   ctx.setTimeOfDay('day');
-
-  takeDistrict(ctx.missions, 'beachfront');
-
-  const coupe = findParkedCar(ctx.parkedCars, 'sport');
-  coupe.setPose(-178, 40, 0);
+  ctx.missions.turf['marina'] = 100;
+  ctx.missions.taken['marina'] = true;
+  const coupe = nearestParked(ctx, 'sport', 31.5, -40);
+  coupe.setPose(-178, 90, 0);
   ctx.enterCar(coupe);
-
-  // Traffic on the marina roads beside the promenade.
-  placeTraffic(ctx.traffic, 0, 'z', -140, 1, -136.2, 66);
-  placeTraffic(ctx.traffic, 1, 'z', -140, -1, -143.8, 96);
-  placeTraffic(ctx.traffic, 2, 'x', 100, 1, -120, 96.2);
-  placeTraffic(ctx.traffic, 3, 'z', -80, 1, -76.2, 120);
-
-  // Camera south-east of the coupe, looking north-west across it: the
-  // turquoise water and the moored white-hulled sailboats sit beyond the
-  // car in the background instead of out at the frame edge.
-  ctx.cam.reset();
-  ctx.cam.yaw = Math.PI - 0.85;
-
-  return {
-    targetSpeed: 17,
-    lockCamera: true,
-    movement: { forward: true, back: false, left: false, right: false, run: false, jump: false },
-  };
+  ctx.cam.yaw = 2.0;
+  ctx.cam.applyOrbit(0, 10);
+  return { targetSpeed: 22, lockCamera: true, movement: NO_INPUT };
 }
 
-// ------------------------------------------- 04 - night turf takeover, portside
-//
-// Night in the port district: Milo holds the container yard while the
-// Portside Takeover bar fills, five wanted stars, cops closing in, muzzle
-// flashes from the live effects system every frame so a flash is always in
-// the frame, and a cruiser's light bar flashing on the yard road.
+// ------------------------------------------------------------------ scene 04
+// NIGHT TURF: the portside takeover under floodlights. Milo stands on the
+// road at the edge of the container yard, inside the takeover zone, so the
+// objective bar fills live while the five-star response closes in. Muzzle
+// flashes fire ahead of him and sparks burst where the nearest cop pushes
+// in, both through the effects module.
 function stageNightTurf(ctx) {
   ctx.missions.startMission('portside-takeover');
-  ctx.setTimeOfDay('night');
-  // Night staging is lifted just enough to read: containers, cranes and the
-  // beacon stay visible instead of crushing to black.
-  ctx.lights.ambient.intensity = 0.34;
-  ctx.lights.hemi.intensity = 0.7;
-  ctx.lights.sun.intensity = 0.7;
-
-  takeDistrict(ctx.missions, 'beachfront');
-  ctx.police.setWanted(5);
-
-  // Milo stands near the edge of the takeover radius (170, 156, r 14),
-  // facing the dock crew closing from the south-west. Standing at the edge
-  // keeps the camera OUT of the orange beacon column (r ~12.6 around the
-  // centre) so the frame stays night, not washed orange.
-  const px = 178;
-  const pz = 166;
-  ctx.player.setPosition(px, ctx.sampleGround(px, pz), pz);
-  const facing = Math.atan2(158 - px, 148 - pz);
-  ctx.player.state.facing = facing;
-  ctx.player.root.rotation.y = facing;
-
-  // Dock crew closing on the yard, plus a cruiser on the yard road.
-  placeCop(ctx.police, 158, 148);
-  placeCop(ctx.police, 180, 150);
-  placeCop(ctx.police, 164, 168);
-  placeCruiser(ctx.police, 160, 186, 0);
-
-  ctx.cam.reset();
-  ctx.cam.yaw = facing + Math.PI;
-
+  standPlayer(ctx, 163, 156, Math.PI / 2);
+  // Look east from the road into the yard, near eye level: the beacon and
+  // the containers fill the frame, and the camera itself sits on clear road,
+  // not inside a container.
+  ctx.cam.yaw = -Math.PI / 2;
+  ctx.cam.applyOrbit(0, 5);
+  let flashT = 0;
   let sparkT = 0;
   return {
-    targetSpeed: 0,
+    movement: NO_INPUT,
     lockCamera: true,
-    movement: IDLE_MOVEMENT,
     tick(dt) {
-      holdWanted(ctx.police, 5);
-
-      // Hold the takeover bar mid-fill: the live HUD reads this progress
-      // every frame, so the bar shows a takeover in progress, not done.
-      const obj = ctx.missions.obj;
-      if (obj && obj.o && obj.o.type === 'takeover') {
-        if (obj.progress < 0.62) obj.progress = 0.62;
-        else if (obj.progress > 0.62) obj.progress = 0.62;
-      }
-
-      // Muzzle flash at Milo's gun, every frame, so a live flash is always
-      // in the frame; sparks and an impact burst by the nearest cop on a
-      // slow cycle for the exchange of fire.
-      const fx = Math.sin(facing);
-      const fz = Math.cos(facing);
-      ctx.effects.spawnBurst(
-        { x: px + fx * 0.9, y: 1.25, z: pz + fz * 0.9 },
-        'muzzle',
-        7,
-      );
-      sparkT += dt || 0.016;
-      if (sparkT > 0.45) {
-        sparkT = 0;
+      flashT += dt;
+      sparkT += dt;
+      if (flashT >= 0.18) {
+        flashT = 0;
+        const fx = Math.sin(ctx.player.state.facing);
+        const fz = Math.cos(ctx.player.state.facing);
         ctx.effects.spawnBurst(
-          { x: px + fx * 1.4, y: 1.25, z: pz + fz * 1.4 },
-          'sparks',
-          6,
+          {
+            x: ctx.player.position.x + fx * 2.2,
+            y: 1.2,
+            z: ctx.player.position.z + fz * 2.2,
+          },
+          'muzzle',
+          7,
         );
-        const cops = ctx.police.cops;
-        if (cops.length > 0) {
-          const cop = cops[0];
-          ctx.effects.spawnBurst({ x: cop.x, y: 1.0, z: cop.z }, 'impact', 8);
-        }
+      }
+      if (sparkT >= 0.9) {
+        sparkT = 0;
+        const cop = ctx.police.cops && ctx.police.cops[0];
+        if (cop) ctx.effects.spawnBurst({ x: cop.x, y: 1.0, z: cop.z }, 'sparks', 10);
       }
     },
   };
+}
+
+// ------------------------------------------------------------------ dispatch
+export function applyShot(shot, ctx) {
+  if (typeof shot !== 'string' || !ctx) return null;
+  if (shot.indexOf('01-') === 0) return stageCoverChase(ctx);
+  if (shot.indexOf('02-') === 0) return stageOnFoot(ctx);
+  if (shot.indexOf('03-') === 0) return stageMarinaDrive(ctx);
+  if (shot.indexOf('04-') === 0) return stageNightTurf(ctx);
+  return null;
 }
