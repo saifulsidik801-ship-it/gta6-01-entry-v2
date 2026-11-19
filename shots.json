@@ -1,0 +1,22 @@
+[
+  {
+    "name": "01-cover-police-chase-dusk.png",
+    "query": "?shot=01-cover-police-chase-dusk",
+    "description": "Cover shot: Milo Kade fleeing a police cruiser through Marisol Bay downtown at dusk, wanted stars, minimap and mission objective on the HUD."
+  },
+  {
+    "name": "02-on-foot-city-traffic.png",
+    "query": "?shot=02-on-foot-city-traffic",
+    "description": "On foot on a sunlit coastal boulevard with streaming traffic and pedestrians, third-person camera behind Milo."
+  },
+  {
+    "name": "03-driving-stolen-car.png",
+    "query": "?shot=03-driving-stolen-car",
+    "description": "Behind the wheel of a freshly stolen coupe at speed along the marina, speed readout and district turf bar visible."
+  },
+  {
+    "name": "04-mission-night-turf.png",
+    "query": "?shot=04-mission-night-turf",
+    "description": "Night turf takeover mission in the port district: muzzle flashes, police response and the mission objective overlay."
+  }
+]

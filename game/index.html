@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MARISOL BAY</title>
+<link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVQoU2P8z8Dwn4EIwDiqkKQkRgYGAE8dBAFy3g0iAAAAAElFTkSuQmCC">
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0d1117; }
+  #view { display: block; width: 100vw; height: 100vh; }
+  #title {
+    position: fixed; left: 28px; bottom: 26px;
+    font: 700 34px/1.1 "Trebuchet MS", "Segoe UI", sans-serif;
+    letter-spacing: 0.22em; color: #fff6e5;
+    text-shadow: 0 2px 18px rgba(255, 128, 52, 0.55), 0 1px 2px rgba(0, 0, 0, 0.6);
+    pointer-events: none; user-select: none;
+  }
+  #title small {
+    display: block; margin-top: 8px;
+    font: 400 12px/1.4 "Trebuchet MS", "Segoe UI", sans-serif;
+    letter-spacing: 0.14em; color: #ffcf9b; opacity: 0.9;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.min.js"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="title">MARISOL BAY<small>A SUN-SOAKED COASTAL CITY</small></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
