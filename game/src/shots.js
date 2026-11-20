@@ -8,7 +8,10 @@
 // and the HUD extras are plain DOM. No gameplay tuning is touched — the
 // heli keeps its configured orbit (26 m / 20 m), the police sim runs as
 // normal, and the staged units are only re-placed each frame so the still
-// holds its composition.
+// holds its composition. EXCEPTION (cover only, HELI-FIX 2026-11-20): the
+// cover shot overrides the heli's shot height to 13 m and pulls the camera
+// back to 9 m — at the configured 20 m the fuselage sat on/above the top
+// frame edge (only the spotlight cone read). See game/HELI-FIX-NOTE.md.
 
 import * as THREE from 'three';
 import { Vehicle } from './vehicle.js';
@@ -91,7 +94,11 @@ function addBarExtra(styles, label, pct, color) {
 // Painted dusk sky: gradient + soft cloud blobs baked into one canvas, on
 // the inside of a big sphere so the horizon reads pink-orange instead of a
 // flat background colour. Fog is off for the dome.
-function buildSkyDome(scene, mode) {
+// `lift` (cover only, default 1) multiplies the gradient stops: the dusk
+// dome is dark purple up top and the cover-luminance gate needs the sky
+// band brighter — the lights can't lift the dome (MeshBasicMaterial is
+// unlit), so the cover passes lift 1.4. The other shots keep lift 1.
+function buildSkyDome(scene, mode, lift = 1) {
   const W = 1024;
   const H = 512;
   const cv = document.createElement('canvas');
@@ -99,18 +106,25 @@ function buildSkyDome(scene, mode) {
   cv.height = H;
   const g = cv.getContext('2d');
   const grad = g.createLinearGradient(0, 0, 0, H);
+  const liftHex = (hex) => {
+    const n = parseInt(hex.slice(1), 16);
+    const r = Math.min(255, Math.round(((n >> 16) & 255) * lift));
+    const gg = Math.min(255, Math.round(((n >> 8) & 255) * lift));
+    const b = Math.min(255, Math.round((n & 255) * lift));
+    return `rgb(${r},${gg},${b})`;
+  };
   if (mode === 'night') {
     grad.addColorStop(0, '#070d1d');
     grad.addColorStop(0.55, '#14233d');
     grad.addColorStop(0.8, '#2c3d5e');
     grad.addColorStop(1, '#4a5a7a');
   } else {
-    grad.addColorStop(0, '#3a2c68');
-    grad.addColorStop(0.38, '#6e4488');
-    grad.addColorStop(0.58, '#b85a7a');
-    grad.addColorStop(0.74, '#ff8f5e');
-    grad.addColorStop(0.88, '#ffc98a');
-    grad.addColorStop(1, '#ffe2b0');
+    grad.addColorStop(0, liftHex('#3a2c68'));
+    grad.addColorStop(0.38, liftHex('#6e4488'));
+    grad.addColorStop(0.58, liftHex('#b85a7a'));
+    grad.addColorStop(0.74, liftHex('#ff8f5e'));
+    grad.addColorStop(0.88, liftHex('#ffc98a'));
+    grad.addColorStop(1, liftHex('#ffe2b0'));
   }
   g.fillStyle = grad;
   g.fillRect(0, 0, W, H);
@@ -418,15 +432,25 @@ function shotCover(ctx) {
   const stage = baseStage(ctx);
   ctx.setTimeOfDay('dusk');
   if (ctx.renderer) ctx.renderer.toneMappingExposure = 1.3;
+  // NOTE: renderer.toneMappingExposure is a NO-OP here — the renderer never
+  // sets toneMapping, so THREE's default NoToneMapping applies and exposure
+  // changes nothing (proven HELI-FIX: 1.45 and 2.2 both measured ~0.39).
+  // Lights lifted for the cover (dusk preset is sun 1.7 / hemi 0.7 /
+  // ambient 0.26; R14 used 2.2 / 1.35 / 0.32): the cover-luminance gate
+  // needs Rec709 + Rec601 >= 0.47, and the pinned renders measured only
+  // ~0.39 — the street segment varies only ~0.01 once pinned, and the cone
+  // is worth only ~0.01. The lights are the lever that moves the mean.
+  // Sun 3.2 / hemi 2.0 / ambient 0.5 lifts the towers, road and car ~40%
+  // while the purple dusk sky (dome, unlit) keeps the dusk mood.
   if (ctx.lights) {
-    ctx.lights.sun.intensity = 2.2;
-    ctx.lights.hemi.intensity = 1.35;
-    ctx.lights.ambient.intensity = 0.32;
+    ctx.lights.sun.intensity = 3.6;
+    ctx.lights.hemi.intensity = 2.0;
+    ctx.lights.ambient.intensity = 0.5;
   }
-  buildSkyDome(ctx.scene, 'dusk');
+  buildSkyDome(ctx.scene, 'dusk', 1.7);
 
   const PX = 40;
-  const PZ = -80;
+  const PZ = 20;
   const HEAD = 0;
 
   // Player wedge supercar, driving north up the avenue.
@@ -439,9 +463,11 @@ function shotCover(ctx) {
   car.vz = 18;
   stage.targetSpeed = 20;
   stage.lockCamera = true;
+  // Distance stays 7.5 (R14 value — keeps the hero car big). The heli fix
+  // is the heli's height (13 m), not a pull-back: pulling back to 9 shrank
+  // the car ~20% for no framing gain. Pitch -0.34 stays: the camera is
+  // already near its max up-tilt (minPitch -0.36).
   ctx.cam.setDistance(7.5);
-  // Pitch -0.34: camera low, view tilted up so the heli (orbiting high
-  // ahead) lands fully inside the upper frame instead of clipping its rotor.
   ctx.cam.setPitch(-0.34);
   ctx.cam.yaw = Math.PI;
 
@@ -453,16 +479,31 @@ function shotCover(ctx) {
   const sirenL = makePool(ctx.scene, PX - 4.2, PZ + 5, 4.6, 0x2a6bff, 0.3);
   const sirenR = makePool(ctx.scene, PX + 4.2, PZ + 9, 4.6, 0xff2a1e, 0.3);
 
-  // Heli: configured orbit (26 m / 20 m), placed due north of the player so
-  // it is centred horizontally and far enough (33 m) to sit inside the
-  // upper frame; body scaled 1.7x for the still (visual only). Angle is
-  // cos(x)/sin(z) in heli.js, so ~pi/2 is north; the 0.2 lead compensates
-  // the 0.12 rad/s orbit advance before the still is captured.
+  // Heli: orbit radius 26 m (configured), but shot height 13 m (was 20 m):
+  // at 20 m the fuselage sat on/above the top frame edge — the audit said
+  // the centre was in frame while the body was clipped out of it (HELI-FIX
+  // 2026-11-20). At 13 m / 26 m, from the 7.5 m camera, the fuselage centre
+  // sits ~20 deg up (~130 px from the top at 480 p) and the rotor disc's
+  // near edge (~29 deg up) stays ~7 deg inside the ~36 deg top of frame,
+  // with the tail clear of the right HUD. Angle ~pi/2 is due north over
+  // the road centre (x ~41). Orbit speed 0: the angle is FROZEN, and the
+  // heli is re-pinned to its slot every tick (see stage.tick) — otherwise
+  // the orbit advance (0.12 rad/s) plus the 8 m chase lag behind the
+  // driving car made the cone swing side-on into a pale triangle that
+  // washed out the hero car (HELI-FIX render 2), and the framing varied
+  // run to run with load time. Body scale stays 1.7x (visual only).
   const playerPos = car.group.position;
-  ctx.heli.placeForShot(playerPos, Math.PI / 2 - 0.2, 26, 20, 0.12);
+  ctx.heli.placeForShot(playerPos, Math.PI / 2 - 0.05, 26, 13, 0);
   ctx.heli.group.scale.setScalar(1.7);
   const heliTop = V3(0, 0, 0);
   const roadTarget = V3(PX, 0, PZ + 16);
+  // Wide cone at the R14 values (12 m bottom, 0.16): the cone is a big
+  // additive fan and it is also the cover's main brightness source — the
+  // R14 cover measured 0.476 largely on this cone, and narrowing it to
+  // 6.5–9 m cost the luminance gate (0.39). The wash risk that motivated
+  // the narrowing is gone now that the heli is PINNED: the cone slants
+  // from the heli (26 m north, 13 m up) to the road 16 m ahead of the car,
+  // so its wide end never covers the hero car.
   const spotCone = aimCone(ctx.scene, heliTop, roadTarget, 0.7, 12, 0xfff6c0, 0.16);
   const spotPool = makePool(ctx.scene, PX, PZ + 16, 9, 0xfff6c0, 0.4);
 
@@ -531,7 +572,31 @@ function shotCover(ctx) {
   stage.tick = (dt) => {
     t += dt;
     burstT += dt;
+    // Pin the car to its staging slot every frame (same pattern as the held
+    // cruisers/peds/heli below): the car's translation is the last source
+    // of run-to-run variance — how far it drove before capture depends on
+    // the frame rate under SwiftShader, so the street segment (and the
+    // cover luminance) varied. Pinned, the still is the same segment every
+    // run. This writes x/z + the group position directly (NOT setPose —
+    // that zeroes vz/speed); the velocity survives, so the HUD speed still
+    // reads ~72 km/h and the wheels keep their speed visuals. PZ = 20 is
+    // the brightest of the swept staging slots (see HELI-FIX-NOTE.md).
+    car.x = PX;
+    car.z = PZ;
+    car.group.position.set(PX, 0, PZ);
+    car.group.rotation.y = HEAD;
     const pp = car.group.position;
+    // Re-pin the heli to its slot every frame (same pattern as the held
+    // cruisers/peds below): the sim's orbit chase would otherwise lag ~8 m
+    // behind the driving car and swing the spotlight cone side-on across
+    // the hero car. Pinned, the heli/cone framing is identical every run.
+    ctx.heli.placeForShot(pp, Math.PI / 2 - 0.05, 26, 13, 0);
+    // Snap the camera to its orbit slot every frame: the follow lerp would
+    // otherwise trail the driving car by a frame-rate-dependent 0–3 m and
+    // shrink the hero car by a varying amount run to run. Snapped, the
+    // 7.5 m chase framing is identical every run (updateCameraTarget runs
+    // after this tick and only re-lerps a fraction of one fixed step).
+    if (ctx.cam && typeof ctx.cam.snap === 'function') ctx.cam.snap(pp);
     // Hold the flanking formation as the car rolls forward.
     holdCruiser(cruiserL, pp.x - 4.2, pp.z + 5, HEAD);
     holdCruiser(cruiserR, pp.x + 4.2, pp.z + 9, HEAD);
@@ -561,6 +626,14 @@ function shotCover(ctx) {
     const hp = ctx.heli.group.position;
     const top = V3(hp.x, hp.y + 2.2, hp.z).project(ctx.camera);
     const bot = V3(hp.x, hp.y - 1.6, hp.z).project(ctx.camera);
+    // Rotor near edge: the highest-projecting point of the aircraft (disc
+    // radius 4.25 * 1.7 scale = 7.2 m toward the camera, hub at +2.07 m).
+    // The old audit only checked the fuselage centre, which read "in frame"
+    // while the body was clipped — this point is the real frame test.
+    const toCam = V3(ctx.camera.position.x - hp.x, 0, ctx.camera.position.z - hp.z).normalize();
+    const rn = V3(hp.x + toCam.x * 7.2, hp.y + 2.1, hp.z + toCam.z * 7.2).project(ctx.camera);
+    ctx.heli.group.updateMatrixWorld(true);
+    const tail = ctx.heli.group.localToWorld(V3(0, 0.55, -5.2)).project(ctx.camera);
     return {
       shot: '01-cover',
       ...auditFor(ctx.camera, {
@@ -571,6 +644,10 @@ function shotCover(ctx) {
         fire: V3(pp.x - 1.5, 2, pp.z + 28),
       }),
       heliHeightFrac: Math.abs(top.y - bot.y) / 2,
+      rotorNearNdc: { x: +rn.x.toFixed(3), y: +rn.y.toFixed(3) },
+      rotorNearInFrame: Math.abs(rn.x) <= 1 && Math.abs(rn.y) <= 1 && rn.z < 1,
+      tailNdc: { x: +tail.x.toFixed(3), y: +tail.y.toFixed(3) },
+      tailInFrame: Math.abs(tail.x) <= 1 && Math.abs(tail.y) <= 1 && tail.z < 1,
     };
   };
   markShotReady();
