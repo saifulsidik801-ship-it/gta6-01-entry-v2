@@ -292,17 +292,17 @@ const CSS = `
   font:700 9.5px/1 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.22em;color:#7fd8d0;text-transform:uppercase;}
 .mb-crew-face{flex:0 0 auto;width:24px;height:24px;border-radius:4px;border:1px solid rgba(255,246,229,.25);}
 /* R9: weapon slots — horizontal row, right column above the crew cards. */
-.mb-weapons{position:absolute;right:18px;top:118px;display:none;flex-direction:row;gap:4px;z-index:5;}
+.mb-weapons{position:absolute;right:18px;top:118px;display:none;flex-direction:row;gap:6px;z-index:5;}
 .mb-weapons.on{display:flex;}
-.mb-wslot{width:32px;padding:4px 0 3px;border-radius:5px;background:rgba(9,16,24,.72);
+.mb-wslot{width:38px;padding:4px 0 3px;border-radius:5px;background:rgba(9,16,24,.72);
   border:1px solid rgba(255,246,229,.18);text-align:center;}
 .mb-wslot .n{font:700 8px/1 "Trebuchet MS","Segoe UI",sans-serif;color:#8fa0ab;}
 .mb-wslot .i{font:700 13px/1.2 "Trebuchet MS","Segoe UI",sans-serif;color:#fff2dd;}
 .mb-wslot .a{font:600 8px/1 "Trebuchet MS","Segoe UI",sans-serif;color:#7fd8d0;}
 .mb-wslot.active{border-color:#ffd166;background:rgba(60,44,10,.82);box-shadow:0 0 10px rgba(255,209,102,.35);}
 .mb-wslot.active .i{color:#ffd166;}
-.mb-wslot.locked{opacity:.55;}
-.mb-wslot.locked .i{font-size:8px;color:#8fa0ab;letter-spacing:.05em;}
+.mb-wslot.locked{opacity:.6;}
+.mb-wslot.locked .i{font-size:7px;color:#8fa0ab;letter-spacing:.08em;}
 /* R9: radio line — sits above the big speed number, bottom right. */
 .mb-radio{position:absolute;right:170px;bottom:118px;display:none;text-align:right;z-index:5;
   font:600 10px/1.4 "Trebuchet MS","Segoe UI",sans-serif;letter-spacing:.1em;color:#ffe9c9;
@@ -367,6 +367,9 @@ const CSS = `
 .mb-shot-popup.on{display:block;}
 /* R9 shot mode: bigger, brighter minimap. */
 .mb-shot #minimap{width:132px !important;height:132px !important;}
+/* R14 shot mode: the top strip (timer/day/rank) sits at top:112px, so the
+   police panel drops below it instead of colliding. */
+.mb-shot .mb-police{top:142px;}
 /* R9 shot mode: the turf panel crowds the right column — hide it in shots. */
 .mb-shot .mb-turf{display:none !important;}
 canvas.mb-dialog-face{padding:0;background:none;border:1px solid rgba(255,246,229,.3);border-radius:5px;}
